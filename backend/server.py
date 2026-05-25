@@ -683,7 +683,10 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=[o.strip() for o in os.environ.get('CORS_ORIGINS', 'http://localhost:3000').split(',') if o.strip()],
+    allow_origin_regex=os.environ.get(
+        'CORS_ORIGIN_REGEX',
+        r'https?://(localhost(:\d+)?|.*\.emergentagent\.com|.*\.emergent\.host)'
+    ),
     allow_methods=["*"],
     allow_headers=["*"],
 )
