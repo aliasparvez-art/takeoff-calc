@@ -80,8 +80,11 @@ async def register(user_input: UserCreate, response: Response):
 @api_router.post("/auth/login", response_model=UserResponse)
 async def login(user_input: UserLogin, request: Request, response: Response):
     email = user_input.email.lower()
-    ip = request.client.host
-    identifier = f"{ip}:{email}"
+    # Use X-Forwarded-For header (set by proxy) or fall back to client host
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    ip = forwarded_for.split(",")[0].strip() if forwarded_for else (request.client.host if request.client else "unknown")
+    # Identifier prioritizes email so lockout works even when proxy IPs vary
+    identifier = f"email:{email}"
     
     # Check brute force lockout
     attempt = await db.login_attempts.find_one({"identifier": identifier})
