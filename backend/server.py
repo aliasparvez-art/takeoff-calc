@@ -571,7 +571,36 @@ async def seed_admin():
             {"$set": {"password_hash": hash_password(admin_password)}}
         )
         logger.info(f"Admin password updated: {admin_email}")
-    
+
+    # One-time user password reset/create (controlled via env vars).
+    # If RESET_USER_EMAIL + RESET_USER_PASSWORD are set, ensure the user exists
+    # with that password. Safe to leave configured — it only updates if the
+    # password actually differs from the stored hash, so it's idempotent and
+    # cheap on subsequent restarts.
+    reset_email = os.environ.get("RESET_USER_EMAIL", "").strip().lower()
+    reset_password = os.environ.get("RESET_USER_PASSWORD", "").strip()
+    reset_name = os.environ.get("RESET_USER_NAME", "User").strip()
+    if reset_email and reset_password:
+        target = await db.users.find_one({"email": reset_email})
+        if target is None:
+            await db.users.insert_one({
+                "_id": ObjectId(),
+                "email": reset_email,
+                "password_hash": hash_password(reset_password),
+                "name": reset_name,
+                "role": "user",
+                "created_at": datetime.now(timezone.utc),
+            })
+            logger.info(f"Reset user created: {reset_email}")
+        elif not verify_password(reset_password, target["password_hash"]):
+            await db.users.update_one(
+                {"email": reset_email},
+                {"$set": {"password_hash": hash_password(reset_password)}}
+            )
+            # Also clear any active lockout for this account
+            await db.login_attempts.delete_many({"identifier": f"email:{reset_email}"})
+            logger.info(f"Reset user password updated: {reset_email}")
+
     # Write test credentials
     os.makedirs("/app/memory", exist_ok=True)
     with open("/app/memory/test_credentials.md", "w") as f:
