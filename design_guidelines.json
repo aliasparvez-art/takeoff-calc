@@ -1,0 +1,77 @@
+{
+  "theme": "Dark",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) modified for Engineering/Technical",
+  "emotional_tone": "Precision, reliability, technical accuracy, utilitarianism",
+  "colors": {
+    "background": "#0F172A",
+    "surface": "#1E293B",
+    "surface_hover": "#334155",
+    "surface_active": "#475569",
+    "primary": "#F59E0B",
+    "primary_hover": "#D97706",
+    "primary_text_on_bg": "#0F172A",
+    "text_primary": "#F8FAFC",
+    "text_secondary": "#94A3B8",
+    "border": "#334155",
+    "border_focus": "#F59E0B",
+    "success": "#10B981",
+    "error": "#EF4444"
+  },
+  "typography": {
+    "heading_font": "Chivo",
+    "body_font": "IBM Plex Sans",
+    "mono_font": "JetBrains Mono",
+    "hierarchy": {
+      "h1": "text-2xl sm:text-3xl tracking-tight font-bold",
+      "h2": "text-xl sm:text-2xl tracking-tight font-semibold",
+      "h3": "text-lg sm:text-xl tracking-tight",
+      "body": "text-sm leading-relaxed",
+      "data_table": "text-[13px] font-mono tracking-tight leading-none",
+      "labels": "text-[10px] uppercase tracking-[0.2em] font-bold text-slate-400"
+    }
+  },
+  "layout_and_spacing": {
+    "philosophy": "Control Room Grid. Data-dense, tight spacing. Every pixel utilized.",
+    "spacing_scale": "Tight (gap-4 or gap-6 for macro, p-2 or p-4 for micro). Generous only on pure marketing/login pages.",
+    "surfaces": "Grid Borders (The Technical Look). Expose the skeleton. Pure HTML + Tailwind CSS for structural grid. No soft shadows, flat 1px borders.",
+    "border_radius": "rounded-none or rounded-[2px] to maintain a rigid technical/utilitarian feel."
+  },
+  "components_strategy": {
+    "general": "Shadcn components heavily customized. Remove default Vercel-look radius (make them 0 or 2px max) and remove soft shadows. Flat and sharp.",
+    "tables": "Dense, tabular data is king. Sticky headers. JetBrains Mono font for all numbers. 1px borders everywhere (border-collapse). Hover states on rows.",
+    "forms": "Small inputs, minimal padding (e.g., h-8 instead of default h-10). Sharp edges. Focus ring should use the Amber accent color.",
+    "buttons": "Utilitarian. Primary CTA is Amber (#F59E0B) with dark Navy text (#0F172A). Solid, no gradients. Hover states slightly darker amber.",
+    "panels": "Collapsible side panels (for document manager) and top panels (for project header). Use 1px border separation."
+  },
+  "motion_and_interaction": {
+    "philosophy": "Minimalist. No bouncing or playful physics. Fast, precise state changes. Think CAD software.",
+    "hover_states": "Hard background shifts (e.g., bg-slate-800 to bg-slate-700), pure functional feedback.",
+    "transitions": "transition-colors duration-150 ease-out"
+  },
+  "media": {
+    "icons": "lucide-react (use at size 16 or 14 for dense UI, 1.5 stroke width for technical feel)",
+    "image_urls": [
+      {
+        "category": "empty_state_background",
+        "description": "Architectural blueprint on dark background for drawing viewer empty state or login screen.",
+        "url": "https://images.unsplash.com/photo-1721244654394-36a7bc2da288?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwyfHxhcmNoaXRlY3R1cmFsJTIwYmx1ZXByaW50JTIwZGFyayUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzc5NjkwNjA3fDA&ixlib=rb-4.1.0&q=85"
+      },
+      {
+        "category": "login_hero_image",
+        "description": "High-resolution close-up of an architectural floor plan.",
+        "url": "https://images.pexels.com/photos/4458205/pexels-photo-4458205.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      }
+    ]
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure all text, especially amber on navy, passes WCAG AA contrast ratio.",
+    "testing": "All interactive elements (buttons, inputs, links, tabs) MUST have data-testid attributes."
+  },
+  "instructions_to_main_agent": [
+    "Install required fonts via Google Fonts: Chivo, IBM Plex Sans, JetBrains Mono.",
+    "Configure Tailwind with the specified color palette (slate-900/slate-800 for navy/charcoal base, amber-500 for accents).",
+    "Customize Shadcn UI components to have rounded-none or rounded-[2px], removing all default soft shadows.",
+    "Build the BOQ Take-off sheet as a dense HTML table or CSS grid with sticky headers, and strictly use JetBrains Mono for number columns.",
+    "Implement the 'Control Room' dense grid layout for the dashboard."
+  ]
+}
