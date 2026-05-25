@@ -17,6 +17,7 @@ from bson import ObjectId
 
 from auth import hash_password, verify_password, create_access_token, create_refresh_token, get_current_user
 from storage import init_storage, put_object, get_object, APP_NAME
+from boq_helpers import calculate_quantity, serialize_boq_row, build_boq_row_doc
 from models import (
     UserCreate, UserLogin, UserResponse,
     ProjectCreate, ProjectResponse,
@@ -80,9 +81,6 @@ async def register(user_input: UserCreate, response: Response):
 @api_router.post("/auth/login", response_model=UserResponse)
 async def login(user_input: UserLogin, request: Request, response: Response):
     email = user_input.email.lower()
-    # Use X-Forwarded-For header (set by proxy) or fall back to client host
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    ip = forwarded_for.split(",")[0].strip() if forwarded_for else (request.client.host if request.client else "unknown")
     # Identifier prioritizes email so lockout works even when proxy IPs vary
     identifier = f"email:{email}"
     
@@ -306,56 +304,13 @@ async def create_boq_row(project_id: str, row_input: BOQRowCreate, request: Requ
     project = await db.projects.find_one({"_id": ObjectId(project_id), "owner_id": user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    # Calculate quantity
-    quantity = row_input.nos * row_input.length * row_input.breadth * row_input.depth if row_input.depth > 0 else \
-               row_input.nos * row_input.length * row_input.breadth if row_input.breadth > 0 else \
-               row_input.nos * row_input.length if row_input.length > 0 else row_input.nos
-    
-    # Get next order number
+
     last_row = await db.boq_rows.find_one({"project_id": project_id}, sort=[("order", -1)])
     order = (last_row["order"] + 1) if last_row else 0
-    
-    row_doc = {
-        "_id": ObjectId(),
-        "project_id": project_id,
-        "item_no": row_input.item_no,
-        "description": row_input.description,
-        "location": row_input.location,
-        "drawing_ref": row_input.drawing_ref,
-        "spec_ref": row_input.spec_ref,
-        "remarks": row_input.remarks,
-        "nos": row_input.nos,
-        "length": row_input.length,
-        "breadth": row_input.breadth,
-        "depth": row_input.depth,
-        "unit": row_input.unit,
-        "quantity": quantity,
-        "is_deduction": row_input.is_deduction,
-        "order": order,
-        "created_at": datetime.now(timezone.utc)
-    }
+
+    row_doc = build_boq_row_doc(project_id, row_input, order, ObjectId)
     await db.boq_rows.insert_one(row_doc)
-    
-    return BOQRowResponse(
-        id=str(row_doc["_id"]),
-        project_id=project_id,
-        item_no=row_doc["item_no"],
-        description=row_doc["description"],
-        location=row_doc["location"],
-        drawing_ref=row_doc["drawing_ref"],
-        spec_ref=row_doc["spec_ref"],
-        remarks=row_doc["remarks"],
-        nos=row_doc["nos"],
-        length=row_doc["length"],
-        breadth=row_doc["breadth"],
-        depth=row_doc["depth"],
-        unit=row_doc["unit"],
-        quantity=row_doc["quantity"],
-        is_deduction=row_doc["is_deduction"],
-        order=row_doc["order"],
-        created_at=row_doc["created_at"].isoformat()
-    )
+    return serialize_boq_row(row_doc)
 
 @api_router.get("/projects/{project_id}/boq-rows", response_model=list[BOQRowResponse])
 async def list_boq_rows(project_id: str, request: Request):
@@ -365,29 +320,7 @@ async def list_boq_rows(project_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Project not found")
     
     rows = await db.boq_rows.find({"project_id": project_id}, {"_id": 1, "project_id": 1, "item_no": 1, "description": 1, "location": 1, "drawing_ref": 1, "spec_ref": 1, "remarks": 1, "nos": 1, "length": 1, "breadth": 1, "depth": 1, "unit": 1, "quantity": 1, "is_deduction": 1, "order": 1, "created_at": 1}).sort("order", 1).to_list(10000)
-    
-    return [
-        BOQRowResponse(
-            id=str(r["_id"]),
-            project_id=r["project_id"],
-            item_no=r["item_no"],
-            description=r["description"],
-            location=r.get("location", ""),
-            drawing_ref=r.get("drawing_ref", ""),
-            spec_ref=r.get("spec_ref", ""),
-            remarks=r.get("remarks", ""),
-            nos=r.get("nos", 1.0),
-            length=r.get("length", 0.0),
-            breadth=r.get("breadth", 0.0),
-            depth=r.get("depth", 0.0),
-            unit=r.get("unit", "m"),
-            quantity=r.get("quantity", 0.0),
-            is_deduction=r.get("is_deduction", False),
-            order=r.get("order", 0),
-            created_at=r["created_at"].isoformat()
-        )
-        for r in rows
-    ]
+    return [serialize_boq_row(r) for r in rows]
 
 @api_router.put("/projects/{project_id}/boq-rows/{row_id}", response_model=BOQRowResponse)
 async def update_boq_row(project_id: str, row_id: str, row_input: BOQRowCreate, request: Request):
@@ -395,12 +328,9 @@ async def update_boq_row(project_id: str, row_id: str, row_input: BOQRowCreate, 
     project = await db.projects.find_one({"_id": ObjectId(project_id), "owner_id": user["_id"]})
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    # Calculate quantity
-    quantity = row_input.nos * row_input.length * row_input.breadth * row_input.depth if row_input.depth > 0 else \
-               row_input.nos * row_input.length * row_input.breadth if row_input.breadth > 0 else \
-               row_input.nos * row_input.length if row_input.length > 0 else row_input.nos
-    
+
+    quantity = calculate_quantity(row_input.nos, row_input.length, row_input.breadth, row_input.depth)
+
     await db.boq_rows.update_one(
         {"_id": ObjectId(row_id), "project_id": project_id},
         {"$set": {
@@ -419,27 +349,9 @@ async def update_boq_row(project_id: str, row_id: str, row_input: BOQRowCreate, 
             "is_deduction": row_input.is_deduction
         }}
     )
-    
+
     updated = await db.boq_rows.find_one({"_id": ObjectId(row_id)})
-    return BOQRowResponse(
-        id=str(updated["_id"]),
-        project_id=updated["project_id"],
-        item_no=updated["item_no"],
-        description=updated["description"],
-        location=updated.get("location", ""),
-        drawing_ref=updated.get("drawing_ref", ""),
-        spec_ref=updated.get("spec_ref", ""),
-        remarks=updated.get("remarks", ""),
-        nos=updated.get("nos", 1.0),
-        length=updated.get("length", 0.0),
-        breadth=updated.get("breadth", 0.0),
-        depth=updated.get("depth", 0.0),
-        unit=updated.get("unit", "m"),
-        quantity=updated.get("quantity", 0.0),
-        is_deduction=updated.get("is_deduction", False),
-        order=updated.get("order", 0),
-        created_at=updated["created_at"].isoformat()
-    )
+    return serialize_boq_row(updated)
 
 @api_router.delete("/projects/{project_id}/boq-rows/{row_id}")
 async def delete_boq_row(project_id: str, row_id: str, request: Request):
@@ -534,7 +446,7 @@ async def download_drawing(drawing_id: str, request: Request, authorization: str
     if token:
         request.cookies["access_token"] = token
     
-    user = await get_current_user(request, db)
+    _ = await get_current_user(request, db)
     drawing = await db.drawings.find_one({"_id": ObjectId(drawing_id), "is_deleted": False})
     if not drawing:
         raise HTTPException(status_code=404, detail="Drawing not found")
@@ -544,7 +456,7 @@ async def download_drawing(drawing_id: str, request: Request, authorization: str
 
 @api_router.put("/drawings/{drawing_id}/scale")
 async def update_drawing_scale(drawing_id: str, scale_data: dict, request: Request):
-    user = await get_current_user(request, db)
+    _ = await get_current_user(request, db)
     drawing = await db.drawings.find_one({"_id": ObjectId(drawing_id), "is_deleted": False})
     if not drawing:
         raise HTTPException(status_code=404, detail="Drawing not found")
@@ -667,7 +579,7 @@ async def seed_admin():
         f.write("## Admin Account\n")
         f.write(f"- Email: {admin_email}\n")
         f.write(f"- Password: {admin_password}\n")
-        f.write(f"- Role: admin\n\n")
+        f.write("- Role: admin\n\n")
         f.write("## Auth Endpoints\n")
         f.write("- POST /api/auth/register\n")
         f.write("- POST /api/auth/login\n")
@@ -675,9 +587,19 @@ async def seed_admin():
         f.write("- POST /api/auth/logout\n")
 
 
-async def seed_sample_project(owner_id: str):
-    """Seed a sample project with BOQ rows for the admin user."""
-    project_doc = {
+SAMPLE_BOQ_ROWS = [
+    {"item_no": "1.1.1", "description": "Excavation in ordinary soil for foundation", "location": "Block A - Foundation", "drawing_ref": "DWG-A-101", "spec_ref": "NBS D20.10", "remarks": "Up to 1.5m depth", "nos": 1, "length": 24.0, "breadth": 18.0, "depth": 1.5, "unit": "m³"},
+    {"item_no": "1.2.1", "description": "PCC 1:3:6 in foundation", "location": "Block A - Foundation", "drawing_ref": "DWG-S-201", "spec_ref": "NBS E10.20", "remarks": "75mm thick", "nos": 1, "length": 24.0, "breadth": 18.0, "depth": 0.075, "unit": "m³"},
+    {"item_no": "2.1.1", "description": "RCC M25 in column footings", "location": "Block A - Foundation", "drawing_ref": "DWG-S-201", "spec_ref": "NBS E20.10", "remarks": "Include reinforcement", "nos": 12, "length": 2.0, "breadth": 2.0, "depth": 0.6, "unit": "m³"},
+    {"item_no": "2.2.1", "description": "Brick masonry walls 230mm thick", "location": "Block A - GF", "drawing_ref": "DWG-A-201", "spec_ref": "NBS F10.30", "remarks": "External walls", "nos": 1, "length": 84.0, "breadth": 0.23, "depth": 3.5, "unit": "m³"},
+    {"item_no": "2.2.2", "description": "Deduct - Door openings", "location": "Block A - GF", "drawing_ref": "DWG-A-201", "spec_ref": "NBS F10.30", "remarks": "8 doors 1.0x2.1", "nos": 8, "length": 1.0, "breadth": 0.23, "depth": 2.1, "unit": "m³", "is_deduction": True},
+    {"item_no": "3.1.1", "description": "Plastering 12mm thick to walls", "location": "Block A - GF", "drawing_ref": "DWG-A-301", "spec_ref": "NBS M20.10", "remarks": "Internal walls", "nos": 1, "length": 168.0, "breadth": 3.5, "depth": 1, "unit": "m²"},
+    {"item_no": "4.1.1", "description": "Vitrified tile flooring 600x600mm", "location": "Block A - GF", "drawing_ref": "DWG-A-401", "spec_ref": "NBS M40.10", "remarks": "Premium grade", "nos": 1, "length": 24.0, "breadth": 18.0, "depth": 1, "unit": "m²"},
+]
+
+
+def _build_sample_project_doc(owner_id: str) -> dict:
+    return {
         "_id": ObjectId(),
         "name": "Sample Project - Office Building",
         "project_number": "PRJ-2026-001",
@@ -688,53 +610,49 @@ async def seed_sample_project(owner_id: str):
         "status": "Draft",
         "owner_id": owner_id,
         "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc)
+        "updated_at": datetime.now(timezone.utc),
     }
+
+
+def _build_sample_row_doc(project_id: str, row_data: dict, order: int) -> dict:
+    data = dict(row_data)
+    is_deduction = data.pop("is_deduction", False)
+    nos = data.get("nos", 1)
+    length = data.get("length", 0)
+    breadth = data.get("breadth", 0)
+    depth = data.get("depth", 0)
+    quantity = calculate_quantity(nos, length, breadth, depth)
+    return {
+        "_id": ObjectId(),
+        "project_id": project_id,
+        "item_no": data["item_no"],
+        "description": data["description"],
+        "location": data["location"],
+        "drawing_ref": data["drawing_ref"],
+        "spec_ref": data["spec_ref"],
+        "remarks": data["remarks"],
+        "nos": nos,
+        "length": length,
+        "breadth": breadth,
+        "depth": depth,
+        "unit": data["unit"],
+        "quantity": quantity,
+        "is_deduction": is_deduction,
+        "order": order,
+        "created_at": datetime.now(timezone.utc),
+    }
+
+
+async def seed_sample_project(owner_id: str):
+    """Seed a sample project + BOQ rows for the admin user."""
+    project_doc = _build_sample_project_doc(owner_id)
     await db.projects.insert_one(project_doc)
     project_id = str(project_doc["_id"])
-    
-    sample_rows = [
-        {"item_no": "1.1.1", "description": "Excavation in ordinary soil for foundation", "location": "Block A - Foundation", "drawing_ref": "DWG-A-101", "spec_ref": "NBS D20.10", "remarks": "Up to 1.5m depth", "nos": 1, "length": 24.0, "breadth": 18.0, "depth": 1.5, "unit": "m³"},
-        {"item_no": "1.2.1", "description": "PCC 1:3:6 in foundation", "location": "Block A - Foundation", "drawing_ref": "DWG-S-201", "spec_ref": "NBS E10.20", "remarks": "75mm thick", "nos": 1, "length": 24.0, "breadth": 18.0, "depth": 0.075, "unit": "m³"},
-        {"item_no": "2.1.1", "description": "RCC M25 in column footings", "location": "Block A - Foundation", "drawing_ref": "DWG-S-201", "spec_ref": "NBS E20.10", "remarks": "Include reinforcement", "nos": 12, "length": 2.0, "breadth": 2.0, "depth": 0.6, "unit": "m³"},
-        {"item_no": "2.2.1", "description": "Brick masonry walls 230mm thick", "location": "Block A - GF", "drawing_ref": "DWG-A-201", "spec_ref": "NBS F10.30", "remarks": "External walls", "nos": 1, "length": 84.0, "breadth": 0.23, "depth": 3.5, "unit": "m³"},
-        {"item_no": "2.2.2", "description": "Deduct - Door openings", "location": "Block A - GF", "drawing_ref": "DWG-A-201", "spec_ref": "NBS F10.30", "remarks": "8 doors 1.0x2.1", "nos": 8, "length": 1.0, "breadth": 0.23, "depth": 2.1, "unit": "m³", "is_deduction": True},
-        {"item_no": "3.1.1", "description": "Plastering 12mm thick to walls", "location": "Block A - GF", "drawing_ref": "DWG-A-301", "spec_ref": "NBS M20.10", "remarks": "Internal walls", "nos": 1, "length": 168.0, "breadth": 3.5, "depth": 1, "unit": "m²"},
-        {"item_no": "4.1.1", "description": "Vitrified tile flooring 600x600mm", "location": "Block A - GF", "drawing_ref": "DWG-A-401", "spec_ref": "NBS M40.10", "remarks": "Premium grade", "nos": 1, "length": 24.0, "breadth": 18.0, "depth": 1, "unit": "m²"},
-    ]
-    
-    for i, row_data in enumerate(sample_rows):
-        is_deduction = row_data.pop("is_deduction", False)
-        nos = row_data.get("nos", 1)
-        length = row_data.get("length", 0)
-        breadth = row_data.get("breadth", 0)
-        depth = row_data.get("depth", 0)
-        
-        quantity = nos * length * breadth * depth if depth > 0 else \
-                   nos * length * breadth if breadth > 0 else \
-                   nos * length if length > 0 else nos
-        
-        row_doc = {
-            "_id": ObjectId(),
-            "project_id": project_id,
-            "item_no": row_data["item_no"],
-            "description": row_data["description"],
-            "location": row_data["location"],
-            "drawing_ref": row_data["drawing_ref"],
-            "spec_ref": row_data["spec_ref"],
-            "remarks": row_data["remarks"],
-            "nos": nos,
-            "length": length,
-            "breadth": breadth,
-            "depth": depth,
-            "unit": row_data["unit"],
-            "quantity": quantity,
-            "is_deduction": is_deduction,
-            "order": i,
-            "created_at": datetime.now(timezone.utc)
-        }
-        await db.boq_rows.insert_one(row_doc)
-    
+
+    row_docs = [_build_sample_row_doc(project_id, r, i) for i, r in enumerate(SAMPLE_BOQ_ROWS)]
+    if row_docs:
+        await db.boq_rows.insert_many(row_docs)
+
     logger.info(f"Sample project seeded: {project_id}")
 
 @app.on_event("startup")

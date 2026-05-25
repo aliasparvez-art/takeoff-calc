@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import api from '../lib/api';
+import logger from '../lib/logger';
 import { Plus, Trash2, Copy, Ruler } from 'lucide-react';
 import DrawingMeasurement from './DrawingMeasurement';
 
@@ -33,7 +34,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
       await api.post(`/projects/${projectId}/boq-rows`, defaultRow);
       onRefresh();
     } catch (error) {
-      console.error('Error adding row:', error);
+      logger.error('Error adding row:', error);
     } finally {
       setLoading(false);
     }
@@ -45,7 +46,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
       onRefresh();
       setEditingRow(null);
     } catch (error) {
-      console.error('Error updating row:', error);
+      logger.error('Error updating row:', error);
     }
   };
 
@@ -56,7 +57,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
       await api.delete(`/projects/${projectId}/boq-rows/${rowId}`);
       onRefresh();
     } catch (error) {
-      console.error('Error deleting row:', error);
+      logger.error('Error deleting row:', error);
     }
   };
 
@@ -74,7 +75,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
       await api.post(`/projects/${projectId}/boq-rows`, duplicateData);
       onRefresh();
     } catch (error) {
-      console.error('Error duplicating row:', error);
+      logger.error('Error duplicating row:', error);
     }
   };
 

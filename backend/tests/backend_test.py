@@ -13,8 +13,8 @@ import requests
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://takeoff-calc.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN_EMAIL = "admin@qto.com"
-ADMIN_PASSWORD = "admin123"
+ADMIN_EMAIL = os.environ.get("TEST_ADMIN_EMAIL", "admin@qto.com")
+ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD", "admin123")
 
 
 # ------------------- Fixtures -------------------
@@ -206,7 +206,7 @@ class TestBOQRows:
         # Verify deduction row present
         deductions = [r for r in rows if r["is_deduction"]]
         assert len(deductions) >= 1
-        assert "Deduct" in deductions[0]["description"] or deductions[0]["is_deduction"] is True
+        assert "Deduct" in deductions[0]["description"] or bool(deductions[0]["is_deduction"])
 
     def test_create_boq_with_full_dims(self, admin_session, temp_project):
         r = admin_session.post(f"{API}/projects/{temp_project}/boq-rows", json={
@@ -252,7 +252,7 @@ class TestBOQRows:
             "unit": "m³", "is_deduction": True
         })
         assert r.status_code == 200
-        assert r.json()["is_deduction"] is True
+        assert bool(r.json()["is_deduction"])
 
     def test_delete_boq_row(self, admin_session, temp_project):
         r = admin_session.post(f"{API}/projects/{temp_project}/boq-rows", json={

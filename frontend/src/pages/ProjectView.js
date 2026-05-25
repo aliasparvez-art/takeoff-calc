@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import api from '../lib/api';
+import logger from '../lib/logger';
 import {
   ArrowLeft, ChevronDown, ChevronUp, Plus, Save, Download,
   Upload, Trash2, Calculator, FileText, DollarSign
@@ -26,11 +27,7 @@ const ProjectView = () => {
   const [activeTab, setActiveTab] = useState('boq');
   const [showHeaderPanel, setShowHeaderPanel] = useState(true);
 
-  useEffect(() => {
-    fetchProjectData();
-  }, [projectId]);
-
-  const fetchProjectData = async () => {
+  const fetchProjectData = useCallback(async () => {
     try {
       const [projectRes, boqRes, drawingsRes] = await Promise.all([
         api.get(`/projects/${projectId}`),
@@ -42,18 +39,22 @@ const ProjectView = () => {
       setBoqRows(boqRes.data);
       setDrawings(drawingsRes.data);
     } catch (error) {
-      console.error('Error fetching project data:', error);
+      logger.error('Error fetching project data:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [projectId]);
+
+  useEffect(() => {
+    fetchProjectData();
+  }, [fetchProjectData]);
 
   const handleUpdateProject = async (updatedData) => {
     try {
       await api.put(`/projects/${projectId}`, updatedData);
       setProject({ ...project, ...updatedData });
     } catch (error) {
-      console.error('Error updating project:', error);
+      logger.error('Error updating project:', error);
     }
   };
 

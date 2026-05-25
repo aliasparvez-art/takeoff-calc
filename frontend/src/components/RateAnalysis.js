@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import api from '../lib/api';
+import logger from '../lib/logger';
 import { Plus, DollarSign, Calculator } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -11,20 +12,20 @@ const RateAnalysis = ({ projectId, boqRows, onRefresh }) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchRates();
-  }, [projectId]);
-
-  const fetchRates = async () => {
+  const fetchRates = useCallback(async () => {
     try {
       const { data } = await api.get(`/projects/${projectId}/rate-analysis`);
       setRates(data);
     } catch (error) {
-      console.error('Error fetching rates:', error);
+      logger.error('Error fetching rates:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [projectId]);
+
+  useEffect(() => {
+    fetchRates();
+  }, [fetchRates]);
 
   const getBOQItem = (boqItemId) => {
     return boqRows.find(row => row.id === boqItemId);
@@ -200,9 +201,9 @@ const RateAnalysis = ({ projectId, boqRows, onRefresh }) => {
 
 const CreateRateModal = ({ projectId, boqRows, onClose, onSuccess }) => {
   const [selectedBOQ, setSelectedBOQ] = useState('');
-  const [materials, setMaterials] = useState([{ name: '', rate: 0 }]);
-  const [labor, setLabor] = useState([{ name: '', rate: 0 }]);
-  const [equipment, setEquipment] = useState([{ name: '', rate: 0 }]);
+  const [materials, setMaterials] = useState([{ id: crypto.randomUUID(), name: '', rate: 0 }]);
+  const [labor, setLabor] = useState([{ id: crypto.randomUUID(), name: '', rate: 0 }]);
+  const [equipment, setEquipment] = useState([{ id: crypto.randomUUID(), name: '', rate: 0 }]);
   const [overhead, setOverhead] = useState(10);
   const [profit, setProfit] = useState(10);
   const [loading, setLoading] = useState(false);
@@ -240,7 +241,7 @@ const CreateRateModal = ({ projectId, boqRows, onClose, onSuccess }) => {
       );
       onSuccess();
     } catch (error) {
-      console.error('Error creating rate analysis:', error);
+      logger.error('Error creating rate analysis:', error);
     } finally {
       setLoading(false);
     }
@@ -276,7 +277,7 @@ const CreateRateModal = ({ projectId, boqRows, onClose, onSuccess }) => {
             <div>
               <label className="qto-label mb-2">Material Rates</label>
               {materials.map((m, i) => (
-                <div key={i} className="flex gap-2 mb-2">
+                <div key={m.id} className="flex gap-2 mb-2">
                   <input
                     type="text"
                     placeholder="Material name"
@@ -304,7 +305,7 @@ const CreateRateModal = ({ projectId, boqRows, onClose, onSuccess }) => {
               ))}
               <button
                 type="button"
-                onClick={() => setMaterials([...materials, { name: '', rate: 0 }])}
+                onClick={() => setMaterials([...materials, { id: crypto.randomUUID(), name: '', rate: 0 }])}
                 className="qto-btn-secondary w-full mt-2"
               >
                 + Add Material
@@ -314,7 +315,7 @@ const CreateRateModal = ({ projectId, boqRows, onClose, onSuccess }) => {
             <div>
               <label className="qto-label mb-2">Labor Rates</label>
               {labor.map((l, i) => (
-                <div key={i} className="flex gap-2 mb-2">
+                <div key={l.id} className="flex gap-2 mb-2">
                   <input
                     type="text"
                     placeholder="Labor type"
@@ -342,7 +343,7 @@ const CreateRateModal = ({ projectId, boqRows, onClose, onSuccess }) => {
               ))}
               <button
                 type="button"
-                onClick={() => setLabor([...labor, { name: '', rate: 0 }])}
+                onClick={() => setLabor([...labor, { id: crypto.randomUUID(), name: '', rate: 0 }])}
                 className="qto-btn-secondary w-full mt-2"
               >
                 + Add Labor
@@ -353,7 +354,7 @@ const CreateRateModal = ({ projectId, boqRows, onClose, onSuccess }) => {
           <div className="mb-6">
             <label className="qto-label mb-2">Equipment Rates</label>
             {equipment.map((eq, i) => (
-              <div key={i} className="flex gap-2 mb-2">
+              <div key={eq.id} className="flex gap-2 mb-2">
                 <input
                   type="text"
                   placeholder="Equipment name"
@@ -381,7 +382,7 @@ const CreateRateModal = ({ projectId, boqRows, onClose, onSuccess }) => {
             ))}
             <button
               type="button"
-              onClick={() => setEquipment([...equipment, { name: '', rate: 0 }])}
+              onClick={() => setEquipment([...equipment, { id: crypto.randomUUID(), name: '', rate: 0 }])}
               className="qto-btn-secondary w-full mt-2"
             >
               + Add Equipment

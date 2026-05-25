@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import api from '../lib/api';
+import logger from '../lib/logger';
 import { Upload, FileText, Trash2, Image } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -23,7 +24,7 @@ const DrawingManager = ({ projectId, drawings, onRefresh }) => {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
       } catch (error) {
-        console.error('Error uploading drawing:', error);
+        logger.error('Error uploading drawing:', error);
       }
     }
     setUploading(false);
