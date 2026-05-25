@@ -685,7 +685,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_origin_regex=os.environ.get(
         'CORS_ORIGIN_REGEX',
-        r'https?://(localhost(:\d+)?|.*\.emergentagent\.com|.*\.emergent\.host)'
+        r'https?://(localhost(:\d+)?|.*\.emergentagent\.com|.*\.emergent\.host|(.*\.)?esconprojects\.in)'
     ),
     allow_methods=["*"],
     allow_headers=["*"],
