@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import api from '../lib/api';
 import { Upload, FileText, Trash2, Image } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -18,8 +19,7 @@ const DrawingManager = ({ projectId, drawings, onRefresh }) => {
       formData.append('file', file);
 
       try {
-        await axios.post(`${API}/projects/${projectId}/drawings`, formData, {
-          withCredentials: true,
+        await api.post(`/projects/${projectId}/drawings`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
       } catch (error) {

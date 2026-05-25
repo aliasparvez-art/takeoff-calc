@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import api from '../lib/api';
 import { Plus, DollarSign, Calculator } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -16,10 +17,7 @@ const RateAnalysis = ({ projectId, boqRows, onRefresh }) => {
 
   const fetchRates = async () => {
     try {
-      const { data } = await axios.get(
-        `${API}/projects/${projectId}/rate-analysis`,
-        { withCredentials: true }
-      );
+      const { data } = await api.get(`/projects/${projectId}/rate-analysis`);
       setRates(data);
     } catch (error) {
       console.error('Error fetching rates:', error);
@@ -229,8 +227,8 @@ const CreateRateModal = ({ projectId, boqRows, onClose, onSuccess }) => {
     });
 
     try {
-      await axios.post(
-        `${API}/projects/${projectId}/rate-analysis`,
+      await api.post(
+        `/projects/${projectId}/rate-analysis`,
         {
           boq_item_id: selectedBOQ,
           material_rates: materialRates,
@@ -238,8 +236,7 @@ const CreateRateModal = ({ projectId, boqRows, onClose, onSuccess }) => {
           equipment_rates: equipmentRates,
           overhead_percentage: overhead,
           profit_percentage: profit,
-        },
-        { withCredentials: true }
+        }
       );
       onSuccess();
     } catch (error) {

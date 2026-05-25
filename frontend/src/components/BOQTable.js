@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import api from '../lib/api';
 import { Plus, Trash2, Copy, Ruler } from 'lucide-react';
 import DrawingMeasurement from './DrawingMeasurement';
 
@@ -29,9 +30,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
   const handleAddRow = async () => {
     setLoading(true);
     try {
-      await axios.post(`${API}/projects/${projectId}/boq-rows`, defaultRow, {
-        withCredentials: true,
-      });
+      await api.post(`/projects/${projectId}/boq-rows`, defaultRow);
       onRefresh();
     } catch (error) {
       console.error('Error adding row:', error);
@@ -42,9 +41,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
 
   const handleUpdateRow = async (rowId, data) => {
     try {
-      await axios.put(`${API}/projects/${projectId}/boq-rows/${rowId}`, data, {
-        withCredentials: true,
-      });
+      await api.put(`/projects/${projectId}/boq-rows/${rowId}`, data);
       onRefresh();
       setEditingRow(null);
     } catch (error) {
@@ -56,9 +53,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
     if (!window.confirm('Delete this BOQ row?')) return;
     
     try {
-      await axios.delete(`${API}/projects/${projectId}/boq-rows/${rowId}`, {
-        withCredentials: true,
-      });
+      await api.delete(`/projects/${projectId}/boq-rows/${rowId}`);
       onRefresh();
     } catch (error) {
       console.error('Error deleting row:', error);
@@ -76,9 +71,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
     delete duplicateData.created_at;
 
     try {
-      await axios.post(`${API}/projects/${projectId}/boq-rows`, duplicateData, {
-        withCredentials: true,
-      });
+      await api.post(`/projects/${projectId}/boq-rows`, duplicateData);
       onRefresh();
     } catch (error) {
       console.error('Error duplicating row:', error);

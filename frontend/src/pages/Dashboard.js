@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
+import api from '../lib/api';
 import { Plus, FileText, LogOut, User, Folder } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -20,9 +21,7 @@ const Dashboard = () => {
 
   const fetchProjects = async () => {
     try {
-      const { data } = await axios.get(`${API}/projects`, {
-        withCredentials: true,
-      });
+      const { data } = await api.get('/projects');
       setProjects(data);
     } catch (error) {
       console.error('Error fetching projects:', error);
@@ -183,9 +182,7 @@ const CreateProjectModal = ({ onClose, onSuccess }) => {
     setLoading(true);
 
     try {
-      await axios.post(`${API}/projects`, formData, {
-        withCredentials: true,
-      });
+      await api.post('/projects', formData);
       onSuccess();
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to create project');

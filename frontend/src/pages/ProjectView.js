@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import api from '../lib/api';
 import {
   ArrowLeft, ChevronDown, ChevronUp, Plus, Save, Download,
   Upload, Trash2, Calculator, FileText, DollarSign
@@ -32,9 +33,9 @@ const ProjectView = () => {
   const fetchProjectData = async () => {
     try {
       const [projectRes, boqRes, drawingsRes] = await Promise.all([
-        axios.get(`${API}/projects/${projectId}`, { withCredentials: true }),
-        axios.get(`${API}/projects/${projectId}/boq-rows`, { withCredentials: true }),
-        axios.get(`${API}/projects/${projectId}/drawings`, { withCredentials: true }),
+        api.get(`/projects/${projectId}`),
+        api.get(`/projects/${projectId}/boq-rows`),
+        api.get(`/projects/${projectId}/drawings`),
       ]);
       
       setProject(projectRes.data);
@@ -49,9 +50,7 @@ const ProjectView = () => {
 
   const handleUpdateProject = async (updatedData) => {
     try {
-      await axios.put(`${API}/projects/${projectId}`, updatedData, {
-        withCredentials: true,
-      });
+      await api.put(`/projects/${projectId}`, updatedData);
       setProject({ ...project, ...updatedData });
     } catch (error) {
       console.error('Error updating project:', error);
