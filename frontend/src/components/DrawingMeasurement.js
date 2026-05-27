@@ -29,7 +29,12 @@ const DrawingMeasurement = ({
   const [knownLength, setKnownLength] = useState('');
 
   // Measurement
-  const [mode, setMode] = useState(targetField === 'depth' ? null : (targetField ? 'linear' : null));
+  const [mode, setMode] = useState(
+    targetField === 'depth' ? null
+    : targetField === 'mark' ? 'mark'
+    : targetField ? 'linear'
+    : null
+  );
   const [measurements, setMeasurements] = useState([]);
   const [currentPoints, setCurrentPoints] = useState([]);
 
@@ -235,6 +240,16 @@ const DrawingMeasurement = ({
     }
   };
 
+  // Send the latest rectangle's W → L, H → B (Issue 3 fix).
+  const sendRectToLB = () => {
+    const rect = [...measurements].reverse().find((m) => m.type === 'rectangle');
+    if (!rect || !rect.dimensions) return;
+    onSendToField('length+breadth', {
+      length: parseFloat(rect.dimensions.width),
+      breadth: parseFloat(rect.dimensions.height),
+    }, selectedDrawing);
+  };
+
   const saveMark = async () => {
     if (!markPopover || !selectedDrawing) return;
     try {
@@ -324,7 +339,7 @@ const DrawingMeasurement = ({
               </div>
             )}
 
-            {selectedDrawing && targetField !== 'depth' && targetField !== 'mark' && (
+            {selectedDrawing && targetField !== 'depth' && (
               <>
                 {/* Scale Status (Enhancement 2) */}
                 <div className="mb-4 p-3 bg-qto-bg rounded-qto" data-testid="scale-status">
@@ -381,6 +396,9 @@ const DrawingMeasurement = ({
                       <button onClick={finishPolygon} className="qto-btn col-span-2 text-xs" data-testid="finish-polygon">Close Polygon</button>
                     )}
                   </div>
+                  {mode === 'mark' && (
+                    <p className="text-xs text-cyan-300 mt-2">Click on the drawing to place a reference mark.</p>
+                  )}
                 </div>
 
                 {/* Measurements list */}
@@ -388,20 +406,35 @@ const DrawingMeasurement = ({
                   <label className="qto-label">Captured ({measurements.length})</label>
                   <div className="space-y-1 max-h-40 overflow-y-auto">
                     {measurements.map((m) => (
-                      <div key={m.id} className="p-2 bg-qto-bg rounded-qto text-xs flex justify-between">
-                        <span className="text-qto-text-secondary capitalize">{m.type}</span>
-                        <span className="font-mono text-qto-primary font-bold">{m.value} {m.unit}</span>
+                      <div key={m.id} className="p-2 bg-qto-bg rounded-qto text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-qto-text-secondary capitalize">{m.type}</span>
+                          <span className="font-mono text-qto-primary font-bold">{m.value} {m.unit}</span>
+                        </div>
+                        {m.dimensions && (
+                          <div className="text-[10px] text-qto-text-secondary font-mono mt-1">
+                            W: {m.dimensions.width} m  ×  H: {m.dimensions.height} m
+                          </div>
+                        )}
                       </div>
                     ))}
                     {measurements.length === 0 && <p className="text-xs text-qto-text-secondary">No measurements yet</p>}
                   </div>
                 </div>
 
-                {targetField && (
-                  <button onClick={sendToField} disabled={measurements.length === 0}
-                    className="qto-btn w-full text-xs flex items-center justify-center gap-1 mb-2" data-testid="send-to-field">
-                    <Save className="w-3 h-3" /> Send to {targetField === 'length' ? 'L' : targetField === 'breadth' ? 'B' : 'D/H'}
-                  </button>
+                {/* Send-to-field actions */}
+                {targetField && targetField !== 'mark' && (
+                  <>
+                    <button onClick={sendToField} disabled={!measurements.some((m) => m.type === 'linear')}
+                      className="qto-btn w-full text-xs flex items-center justify-center gap-1 mb-2" data-testid="send-to-field">
+                      <Save className="w-3 h-3" /> Send linear → {targetField === 'length' ? 'L' : targetField === 'breadth' ? 'B' : 'D/H'}
+                    </button>
+                    {measurements.some((m) => m.type === 'rectangle') && (
+                      <button onClick={sendRectToLB} className="qto-btn w-full text-xs flex items-center justify-center gap-1 mb-2" data-testid="send-rect-to-lb">
+                        <Save className="w-3 h-3" /> Send rectangle → L + B
+                      </button>
+                    )}
+                  </>
                 )}
 
                 <button onClick={exportMarkedUp} disabled={!selectedDrawing}
@@ -411,9 +444,9 @@ const DrawingMeasurement = ({
               </>
             )}
 
-            {targetField === 'mark' && (
+            {targetField === 'mark' && !selectedDrawing && (
               <p className="text-xs text-qto-text-secondary mt-2">
-                Click anywhere on the drawing to place a reference mark.
+                Select a drawing above, then click the [Ref Mark] tool and click on the drawing to place a marker.
               </p>
             )}
           </div>
@@ -449,11 +482,13 @@ const DrawingMeasurement = ({
                     <canvas ref={overlayCanvasRef} onClick={handleCanvasClick} className="absolute top-0 left-0" data-testid="measurement-canvas" />
                   </div>
 
-                  {/* Mark popover */}
+                  {/* Mark popover — anchored top-right so it's always visible regardless of where user clicked. */}
                   {markPopover && (
-                    <div className="absolute bg-qto-surface border border-qto-primary rounded-qto p-3 shadow-lg z-30"
-                      style={{ left: markPopover.x * zoom + pan.x + 20, top: markPopover.y * zoom + pan.y - 80 }}
+                    <div className="absolute top-16 right-4 bg-qto-surface border border-qto-primary rounded-qto p-4 shadow-2xl z-30 w-72"
                       data-testid="mark-popover">
+                      <div className="text-xs font-mono text-qto-primary mb-2">
+                        Mark @ ({Math.round(markPopover.x)}, {Math.round(markPopover.y)})
+                      </div>
                       <div className="mb-2">
                         <label className="qto-label">Link to BOQ Row</label>
                         <select value={markRowId} onChange={(e) => setMarkRowId(e.target.value)} className="qto-input w-full text-xs" data-testid="mark-row-select">
@@ -461,7 +496,7 @@ const DrawingMeasurement = ({
                           {row && <option value={row.id}>{row.item_no} - {row.description}</option>}
                         </select>
                       </div>
-                      <div className="mb-2">
+                      <div className="mb-3">
                         <label className="qto-label">Label</label>
                         <input type="text" value={markLabel} onChange={(e) => setMarkLabel(e.target.value)}
                           placeholder="e.g. Column base pad" className="qto-input w-full text-xs" data-testid="mark-label" />

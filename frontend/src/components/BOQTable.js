@@ -148,11 +148,29 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings, marks = [], onMarksUpd
           onMarksUpdate={onMarksUpdate}
           onSendToField={(field, value, drawing) => {
             const row = rows.find((r) => r.id === showMeasurement.rowId);
-            const update = { ...row, [field]: value, drawing_ref: drawing?.filename || row.drawing_ref };
+            if (!row) { setShowMeasurement(null); return; }
+            const update = {
+              ...row,
+              drawing_ref: drawing?.filename || row.drawing_ref,
+            };
+            // `field` can be 'length' | 'breadth' | 'depth', or 'length+breadth' for rectangle send
+            if (field === 'length+breadth') {
+              // value is { length, breadth }
+              update.length = value.length;
+              update.breadth = value.breadth;
+            } else {
+              update[field] = value;
+            }
             // Track source so we can show "measured from" badge.
-            const meta = row.measurement_meta || {};
-            meta[field] = drawing ? `${drawing.filename} pg.1` : 'manual';
-            update.measurement_meta = meta;
+            const measMeta = row.measurement_meta || {};
+            const src = drawing ? `${drawing.filename} pg.1` : 'manual';
+            if (field === 'length+breadth') {
+              measMeta.length = src;
+              measMeta.breadth = src;
+            } else {
+              measMeta[field] = src;
+            }
+            update.measurement_meta = measMeta;
             handleUpdateRow(showMeasurement.rowId, update);
             setShowMeasurement(null);
           }}
@@ -199,6 +217,12 @@ const FieldWithMeasure = ({ value, onChange, onBlur, onMeasure, testid, measured
 const BOQRow = ({ row, rowMarks, drawings, onUpdate, onDelete, onDuplicate, onMeasureField, onOpenRef }) => {
   const [formData, setFormData] = useState(row);
   const meta = row.measurement_meta || {};
+
+  // Sync local state when the row prop changes (e.g., after a measurement is
+  // sent from the drawing modal and the parent refetches).
+  React.useEffect(() => {
+    setFormData(row);
+  }, [row]);
 
   const handleBlur = () => {
     if (JSON.stringify(formData) !== JSON.stringify(row)) onUpdate(formData);
