@@ -37,6 +37,35 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+# Cookie security settings — env-driven so dev can override.
+# Production (HTTPS, cross-origin): COOKIE_SECURE=true, COOKIE_SAMESITE=none
+# Local dev (HTTP localhost):       COOKIE_SECURE=false, COOKIE_SAMESITE=lax
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() == "true"
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "none").lower()
+
+
+def set_auth_cookies(response: Response, access_token: str, refresh_token: str = None):
+    """Set auth cookies with cross-origin-safe defaults."""
+    response.set_cookie(
+        key="access_token", value=access_token, httponly=True,
+        secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=3600, path="/"
+    )
+    if refresh_token is not None:
+        response.set_cookie(
+            key="refresh_token", value=refresh_token, httponly=True,
+            secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=604800, path="/"
+        )
+
+
+def clear_auth_cookies(response: Response):
+    """Clear cookies using matching attributes so browsers honor the deletion."""
+    response.delete_cookie(
+        key="access_token", path="/", samesite=COOKIE_SAMESITE, secure=COOKIE_SECURE
+    )
+    response.delete_cookie(
+        key="refresh_token", path="/", samesite=COOKIE_SAMESITE, secure=COOKIE_SECURE
+    )
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -67,8 +96,7 @@ async def register(user_input: UserCreate, response: Response):
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
     
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    set_auth_cookies(response, access_token, refresh_token)
     
     return UserResponse(
         id=user_id,
@@ -114,8 +142,7 @@ async def login(user_input: UserLogin, request: Request, response: Response):
     access_token = create_access_token(user_id, email)
     refresh_token = create_refresh_token(user_id)
     
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
+    set_auth_cookies(response, access_token, refresh_token)
     
     return UserResponse(
         id=user_id,
@@ -127,8 +154,7 @@ async def login(user_input: UserLogin, request: Request, response: Response):
 
 @api_router.post("/auth/logout")
 async def logout(response: Response):
-    response.delete_cookie("access_token")
-    response.delete_cookie("refresh_token")
+    clear_auth_cookies(response)
     return {"message": "Logged out successfully"}
 
 @api_router.post("/auth/refresh")
@@ -147,7 +173,7 @@ async def refresh_token_endpoint(request: Request, response: Response):
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         new_access_token = create_access_token(user_id, user["email"])
-        response.set_cookie(key="access_token", value=new_access_token, httponly=True, secure=False, samesite="lax", max_age=3600, path="/")
+        set_auth_cookies(response, new_access_token)
         return {"message": "Token refreshed"}
     except _jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Refresh token expired")
