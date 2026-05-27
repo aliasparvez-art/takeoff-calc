@@ -5,13 +5,14 @@ import api from '../lib/api';
 import logger from '../lib/logger';
 import {
   ArrowLeft, ChevronDown, ChevronUp, Plus, Save, Download,
-  Upload, Trash2, Calculator, FileText, DollarSign
+  Upload, Trash2, Calculator, FileText, DollarSign, Link2
 } from 'lucide-react';
 
 import ProjectHeader from '../components/ProjectHeader';
 import BOQTable from '../components/BOQTable';
 import DrawingManager from '../components/DrawingManager';
 import RateAnalysis from '../components/RateAnalysis';
+import ReferencesPanel from '../components/ReferencesPanel';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -23,21 +24,24 @@ const ProjectView = () => {
   const [project, setProject] = useState(null);
   const [boqRows, setBoqRows] = useState([]);
   const [drawings, setDrawings] = useState([]);
+  const [marks, setMarks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('boq');
   const [showHeaderPanel, setShowHeaderPanel] = useState(true);
 
   const fetchProjectData = useCallback(async () => {
     try {
-      const [projectRes, boqRes, drawingsRes] = await Promise.all([
+      const [projectRes, boqRes, drawingsRes, marksRes] = await Promise.all([
         api.get(`/projects/${projectId}`),
         api.get(`/projects/${projectId}/boq-rows`),
         api.get(`/projects/${projectId}/drawings`),
+        api.get(`/projects/${projectId}/marks`),
       ]);
       
       setProject(projectRes.data);
       setBoqRows(boqRes.data);
       setDrawings(drawingsRes.data);
+      setMarks(marksRes.data);
     } catch (error) {
       logger.error('Error fetching project data:', error);
     } finally {
@@ -60,13 +64,14 @@ const ProjectView = () => {
 
   const handleExportCSV = () => {
     const headers = [
-      'Item No', 'Description', 'Location', 'Drawing Ref', 'Spec Ref',
-      'Nos', 'Length', 'Breadth', 'Depth', 'Unit', 'Quantity', 'Deduction', 'Remarks'
+      'Item No', 'Description', 'Unit', 'Location', 'Drawing Ref', 'Spec Ref',
+      'NOS', 'L', 'B', 'D/H', 'Qty (calc.)', 'Deduction', 'Remarks'
     ];
     
     const rows = boqRows.map(row => [
       row.item_no,
       row.description,
+      row.unit,
       row.location,
       row.drawing_ref,
       row.spec_ref,
@@ -74,7 +79,6 @@ const ProjectView = () => {
       row.length,
       row.breadth,
       row.depth,
-      row.unit,
       row.quantity,
       row.is_deduction ? 'Yes' : 'No',
       row.remarks
@@ -275,6 +279,20 @@ const ProjectView = () => {
               Rate Analysis
             </div>
           </button>
+          <button
+            onClick={() => setActiveTab('refs')}
+            className={`px-4 py-3 text-sm font-heading font-semibold transition-qto border-b-2 ${
+              activeTab === 'refs'
+                ? 'border-qto-primary text-qto-primary'
+                : 'border-transparent text-qto-text-secondary hover:text-qto-text-primary'
+            }`}
+            data-testid="refs-tab"
+          >
+            <div className="flex items-center gap-2">
+              <Link2 className="w-4 h-4" />
+              References ({marks.length})
+            </div>
+          </button>
         </div>
       </div>
 
@@ -286,6 +304,8 @@ const ProjectView = () => {
             rows={boqRows}
             onRefresh={fetchProjectData}
             drawings={drawings}
+            marks={marks}
+            onMarksUpdate={fetchProjectData}
           />
         )}
         {activeTab === 'drawings' && (
@@ -300,6 +320,14 @@ const ProjectView = () => {
             projectId={projectId}
             boqRows={boqRows}
             onRefresh={fetchProjectData}
+          />
+        )}
+        {activeTab === 'refs' && (
+          <ReferencesPanel
+            marks={marks}
+            drawings={drawings}
+            boqRows={boqRows}
+            onOpenMark={() => setActiveTab('boq')}
           />
         )}
       </div>

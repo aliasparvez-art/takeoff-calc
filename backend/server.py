@@ -23,7 +23,8 @@ from models import (
     ProjectCreate, ProjectResponse,
     BOQRowCreate, BOQRowResponse,
     DrawingCreate, DrawingResponse,
-    RateAnalysisCreate, RateAnalysisResponse
+    RateAnalysisCreate, RateAnalysisResponse,
+    MarkCreate, MarkResponse
 )
 
 # MongoDB connection
@@ -572,6 +573,69 @@ async def list_rate_analysis(project_id: str, request: Request):
         )
         for r in rates
     ]
+
+# ====== Drawing Marks (References) ======
+
+async def _verify_project_access(project_id: str, request: Request) -> dict:
+    user = await get_current_user(request, db)
+    project = await db.projects.find_one({"_id": ObjectId(project_id), "owner_id": user["_id"]})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return user
+
+
+def _serialize_mark(m: dict) -> MarkResponse:
+    return MarkResponse(
+        id=str(m["_id"]),
+        project_id=m["project_id"],
+        drawing_id=m["drawing_id"],
+        page=m.get("page", 1),
+        ref_id=m["ref_id"],
+        position_x=m["position_x"],
+        position_y=m["position_y"],
+        boq_row_id=m.get("boq_row_id", ""),
+        label=m.get("label", ""),
+        created_at=m["created_at"].isoformat() if isinstance(m.get("created_at"), datetime) else str(m.get("created_at", "")),
+    )
+
+
+@api_router.post("/projects/{project_id}/marks", response_model=MarkResponse)
+async def create_mark(project_id: str, mark_input: MarkCreate, request: Request):
+    await _verify_project_access(project_id, request)
+    count = await db.marks.count_documents({"drawing_id": mark_input.drawing_id})
+    ref_id = f"REF-{count + 1:03d}"
+    mark_doc = {
+        "_id": ObjectId(),
+        "project_id": project_id,
+        "drawing_id": mark_input.drawing_id,
+        "page": mark_input.page or 1,
+        "ref_id": ref_id,
+        "position_x": mark_input.position_x,
+        "position_y": mark_input.position_y,
+        "boq_row_id": mark_input.boq_row_id or "",
+        "label": mark_input.label or "",
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.marks.insert_one(mark_doc)
+    return _serialize_mark(mark_doc)
+
+
+@api_router.get("/projects/{project_id}/marks", response_model=list[MarkResponse])
+async def list_marks(project_id: str, request: Request):
+    await _verify_project_access(project_id, request)
+    marks = await db.marks.find({"project_id": project_id}).sort("created_at", 1).to_list(10000)
+    return [_serialize_mark(m) for m in marks]
+
+
+@api_router.delete("/projects/{project_id}/marks/{mark_id}")
+async def delete_mark(project_id: str, mark_id: str, request: Request):
+    await _verify_project_access(project_id, request)
+    result = await db.marks.delete_one({"_id": ObjectId(mark_id), "project_id": project_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Mark not found")
+    return {"message": "Mark deleted"}
+
+
 
 # Seed admin user
 async def seed_admin():

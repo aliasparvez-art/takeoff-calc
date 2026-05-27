@@ -4,18 +4,19 @@ from models import BOQRowResponse
 
 
 def calculate_quantity(nos: float, length: float, breadth: float, depth: float) -> float:
-    """Compute BOQ quantity supporting partial dimensions.
+    """Compute BOQ quantity strictly as NOS × L × B × D/H.
 
-    Volumes use Nos × L × B × D. If depth is 0, fall back to area; if breadth is
-    0, fall back to linear; if all dims are 0, return Nos (treats as count/lump-sum).
+    Per Enhancement 4 spec:
+    - Any blank/zero dimension is treated as 1 in multiplication.
+    - EXCEPT if all four are blank/zero, return 0 — frontend renders this as "—".
     """
-    if depth > 0:
-        return nos * length * breadth * depth
-    if breadth > 0:
-        return nos * length * breadth
-    if length > 0:
-        return nos * length
-    return nos
+    if not (nos or length or breadth or depth):
+        return 0.0
+    n = nos if nos else 1
+    length_v = length if length else 1
+    breadth_v = breadth if breadth else 1
+    depth_v = depth if depth else 1
+    return float(n * length_v * breadth_v * depth_v)
 
 
 def serialize_boq_row(row_doc: dict) -> BOQRowResponse:

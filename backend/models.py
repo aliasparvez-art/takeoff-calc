@@ -115,3 +115,26 @@ class RateAnalysisResponse(BaseModel):
     total_rate: float
     unit: str
     created_at: str
+
+
+class MarkCreate(BaseModel):
+    drawing_id: str
+    page: Optional[int] = 1
+    position_x: float
+    position_y: float
+    boq_row_id: Optional[str] = ""
+    label: Optional[str] = ""
+
+
+class MarkResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    project_id: str
+    drawing_id: str
+    page: int
+    ref_id: str
+    position_x: float
+    position_y: float
+    boq_row_id: str
+    label: str
+    created_at: str

@@ -1,31 +1,32 @@
 import React, { useState } from 'react';
-import axios from 'axios';
 import api from '../lib/api';
 import logger from '../lib/logger';
-import { Plus, Trash2, Copy, Ruler } from 'lucide-react';
+import { Plus, Trash2, Copy, Ruler, Pencil } from 'lucide-react';
 import DrawingMeasurement from './DrawingMeasurement';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+const UNIT_OPTIONS = ['m', 'm²', 'm³', 'nr', 'kg', 't', 'hrs', 'l/s', 'ls'];
 
-const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
-  const [editingRow, setEditingRow] = useState(null);
+// Compute Qty client-side mirroring backend formula (Enhancement 4).
+const computeQty = (row) => {
+  const n = parseFloat(row.nos) || 0;
+  const l = parseFloat(row.length) || 0;
+  const b = parseFloat(row.breadth) || 0;
+  const d = parseFloat(row.depth) || 0;
+  if (!(n || l || b || d)) return null;
+  const nv = n || 1, lv = l || 1, bv = b || 1, dv = d || 1;
+  return nv * lv * bv * dv;
+};
+
+const formatQty = (qty) => (qty == null ? '—' : qty.toFixed(3));
+
+const BOQTable = ({ projectId, rows, onRefresh, drawings, marks = [], onMarksUpdate }) => {
   const [showMeasurement, setShowMeasurement] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const defaultRow = {
-    item_no: '',
-    description: '',
-    location: '',
-    drawing_ref: '',
-    spec_ref: '',
-    remarks: '',
-    nos: 1,
-    length: 0,
-    breadth: 0,
-    depth: 0,
-    unit: 'm',
-    is_deduction: false,
+    item_no: '', description: '', location: '', drawing_ref: '',
+    spec_ref: '', remarks: '', nos: 1, length: 0, breadth: 0,
+    depth: 0, unit: 'm', is_deduction: false,
   };
 
   const handleAddRow = async () => {
@@ -33,60 +34,46 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
     try {
       await api.post(`/projects/${projectId}/boq-rows`, defaultRow);
       onRefresh();
-    } catch (error) {
-      logger.error('Error adding row:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { logger.error('Add row failed:', e); }
+    finally { setLoading(false); }
   };
 
   const handleUpdateRow = async (rowId, data) => {
     try {
       await api.put(`/projects/${projectId}/boq-rows/${rowId}`, data);
       onRefresh();
-      setEditingRow(null);
-    } catch (error) {
-      logger.error('Error updating row:', error);
-    }
+    } catch (e) { logger.error('Update row failed:', e); }
   };
 
   const handleDeleteRow = async (rowId) => {
     if (!window.confirm('Delete this BOQ row?')) return;
-    
     try {
       await api.delete(`/projects/${projectId}/boq-rows/${rowId}`);
       onRefresh();
-    } catch (error) {
-      logger.error('Error deleting row:', error);
-    }
+    } catch (e) { logger.error('Delete row failed:', e); }
   };
 
   const handleDuplicateRow = async (row) => {
-    const duplicateData = {
-      ...row,
-      item_no: row.item_no + ' (Copy)',
-    };
-    delete duplicateData.id;
-    delete duplicateData.project_id;
-    delete duplicateData.order;
-    delete duplicateData.created_at;
-
+    const dup = { ...row, item_no: row.item_no + ' (Copy)' };
+    delete dup.id; delete dup.project_id; delete dup.order; delete dup.created_at; delete dup.quantity;
     try {
-      await api.post(`/projects/${projectId}/boq-rows`, duplicateData);
+      await api.post(`/projects/${projectId}/boq-rows`, dup);
       onRefresh();
-    } catch (error) {
-      logger.error('Error duplicating row:', error);
-    }
+    } catch (e) { logger.error('Duplicate row failed:', e); }
   };
 
-  const calculateSubtotal = () => {
-    return rows.reduce((sum, row) => {
-      if (row.is_deduction) {
-        return sum - row.quantity;
-      }
-      return sum + row.quantity;
-    }, 0);
-  };
+  const subtotal = rows.reduce((s, r) => {
+    const q = computeQty(r) || 0;
+    return r.is_deduction ? s - q : s + q;
+  }, 0);
+
+  // Build mark badges per row
+  const marksByRow = {};
+  marks.forEach((m) => {
+    if (!m.boq_row_id) return;
+    if (!marksByRow[m.boq_row_id]) marksByRow[m.boq_row_id] = [];
+    marksByRow[m.boq_row_id].push(m);
+  });
 
   return (
     <div className="qto-panel p-4" data-testid="boq-table-container">
@@ -94,14 +81,8 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
         <h3 className="text-lg font-heading font-semibold text-qto-text-primary">
           Bill of Quantities Take-Off Sheet
         </h3>
-        <button
-          onClick={handleAddRow}
-          disabled={loading}
-          className="qto-btn flex items-center gap-2"
-          data-testid="add-boq-row-button"
-        >
-          <Plus className="w-4 h-4" />
-          Add Row
+        <button onClick={handleAddRow} disabled={loading} className="qto-btn flex items-center gap-2" data-testid="add-boq-row-button">
+          <Plus className="w-4 h-4" /> Add Row
         </button>
       </div>
 
@@ -109,49 +90,44 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
         <table className="qto-table w-full">
           <thead>
             <tr>
-              <th className="w-24">Item No</th>
-              <th className="w-48">Description</th>
-              <th className="w-32">Location</th>
-              <th className="w-32">Drawing Ref</th>
-              <th className="w-32">Spec Ref</th>
-              <th className="w-20">Nos</th>
-              <th className="w-20">L (m)</th>
-              <th className="w-20">B (m)</th>
-              <th className="w-20">D/H (m)</th>
-              <th className="w-20">Unit</th>
-              <th className="w-24">Quantity</th>
-              <th className="w-20">Deduct</th>
-              <th className="w-48">Remarks</th>
-              <th className="w-32">Actions</th>
+              <th className="w-20">Item No</th>
+              <th className="w-44">Description</th>
+              <th className="w-16">Unit</th>
+              <th className="w-28">Location</th>
+              <th className="w-28">Drawing Ref</th>
+              <th className="w-24">Spec Ref</th>
+              <th className="w-16">NOS</th>
+              <th className="w-20">L</th>
+              <th className="w-20">B</th>
+              <th className="w-20">D/H</th>
+              <th className="w-28">Qty (calc.)</th>
+              <th className="w-16">Deduct</th>
+              <th className="w-52">Remarks</th>
+              <th className="w-28">Actions</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr>
-                <td colSpan="14" className="text-center py-8 text-qto-text-secondary">
-                  No BOQ rows yet. Click "Add Row" to start.
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => (
-                <BOQRow
-                  key={row.id}
-                  row={row}
-                  isEditing={editingRow === row.id}
-                  onEdit={() => setEditingRow(row.id)}
-                  onUpdate={(data) => handleUpdateRow(row.id, data)}
-                  onDelete={() => handleDeleteRow(row.id)}
-                  onDuplicate={() => handleDuplicateRow(row)}
-                  onMeasure={() => setShowMeasurement(row.id)}
-                />
-              ))
-            )}
+              <tr><td colSpan="14" className="text-center py-8 text-qto-text-secondary">No BOQ rows yet. Click "Add Row" to start.</td></tr>
+            ) : rows.map((row) => (
+              <BOQRow
+                key={row.id}
+                row={row}
+                rowMarks={marksByRow[row.id] || []}
+                drawings={drawings}
+                onUpdate={(data) => handleUpdateRow(row.id, data)}
+                onDelete={() => handleDeleteRow(row.id)}
+                onDuplicate={() => handleDuplicateRow(row)}
+                onMeasureField={(field) => setShowMeasurement({ rowId: row.id, field })}
+                onOpenRef={(mark) => setShowMeasurement({ rowId: row.id, focusMarkId: mark.id, drawingId: mark.drawing_id })}
+              />
+            ))}
           </tbody>
           {rows.length > 0 && (
             <tfoot>
               <tr className="bg-qto-surface font-bold">
                 <td colSpan="10" className="text-right">TOTAL:</td>
-                <td className="font-mono">{calculateSubtotal().toFixed(3)}</td>
+                <td className="font-mono text-qto-primary">{subtotal.toFixed(3)}</td>
                 <td colSpan="3"></td>
               </tr>
             </tfoot>
@@ -161,14 +137,35 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
 
       {showMeasurement && (
         <DrawingMeasurement
-          rowId={showMeasurement}
-          row={rows.find(r => r.id === showMeasurement)}
+          projectId={projectId}
+          row={rows.find((r) => r.id === showMeasurement.rowId)}
           drawings={drawings}
+          marks={marks}
+          targetField={showMeasurement.field}
+          focusMarkId={showMeasurement.focusMarkId}
+          initialDrawingId={showMeasurement.drawingId}
           onClose={() => setShowMeasurement(null)}
-          onUpdate={(data) => {
-            const row = rows.find(r => r.id === showMeasurement);
-            handleUpdateRow(showMeasurement, { ...row, ...data });
+          onMarksUpdate={onMarksUpdate}
+          onSendToField={(field, value, drawing) => {
+            const row = rows.find((r) => r.id === showMeasurement.rowId);
+            const update = { ...row, [field]: value, drawing_ref: drawing?.filename || row.drawing_ref };
+            // Track source so we can show "measured from" badge.
+            const meta = row.measurement_meta || {};
+            meta[field] = drawing ? `${drawing.filename} pg.1` : 'manual';
+            update.measurement_meta = meta;
+            handleUpdateRow(showMeasurement.rowId, update);
             setShowMeasurement(null);
+          }}
+          onMarkSaved={(mark, rowId) => {
+            // Append ref badge to row Remarks
+            const row = rows.find((r) => r.id === rowId);
+            if (row) {
+              const dwg = drawings.find((d) => d.id === mark.drawing_id);
+              const tag = `[${mark.ref_id} | ${dwg?.filename || ''} pg.${mark.page}]`;
+              const newRemarks = row.remarks ? `${row.remarks} ${tag}` : tag;
+              handleUpdateRow(rowId, { ...row, remarks: newRemarks });
+            }
+            onMarksUpdate && onMarksUpdate();
           }}
         />
       )}
@@ -176,190 +173,188 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings }) => {
   );
 };
 
-const BOQRow = ({ row, isEditing, onEdit, onUpdate, onDelete, onDuplicate, onMeasure }) => {
+const FieldWithMeasure = ({ value, onChange, onBlur, onMeasure, testid, measured }) => (
+  <div className="relative flex items-center gap-1">
+    <input
+      type="number"
+      step="0.01"
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      className="qto-input w-full font-mono pr-6"
+      data-testid={testid}
+    />
+    <button
+      type="button"
+      onClick={onMeasure}
+      className="absolute right-1 p-0.5 hover:bg-qto-surface-active rounded transition-qto"
+      title="Measure from drawing"
+      data-testid={`${testid}-measure`}
+    >
+      <Ruler className={`w-3.5 h-3.5 ${measured ? 'text-qto-success' : 'text-qto-text-secondary'}`} />
+    </button>
+  </div>
+);
+
+const BOQRow = ({ row, rowMarks, drawings, onUpdate, onDelete, onDuplicate, onMeasureField, onOpenRef }) => {
   const [formData, setFormData] = useState(row);
+  const meta = row.measurement_meta || {};
 
   const handleBlur = () => {
-    if (JSON.stringify(formData) !== JSON.stringify(row)) {
-      onUpdate(formData);
-    }
+    if (JSON.stringify(formData) !== JSON.stringify(row)) onUpdate(formData);
+  };
+
+  const qty = computeQty(formData);
+  const displayQty = formatQty(qty);
+  const signedQty = qty != null && formData.is_deduction ? -qty : qty;
+
+  // Render Remarks with parseable ref badges
+  const renderRemarks = () => {
+    const text = formData.remarks || '';
+    const parts = text.split(/(\[REF-\d{3}[^\]]*\])/g);
+    return (
+      <div className="flex flex-wrap items-center gap-1">
+        {parts.map((p, i) => {
+          const m = p.match(/^\[(REF-\d{3})/);
+          if (m) {
+            const mark = rowMarks.find((x) => x.ref_id === m[1]);
+            return (
+              <button
+                key={i}
+                onClick={() => mark && onOpenRef(mark)}
+                className="text-xs font-mono bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded hover:bg-cyan-500/30 transition-qto"
+                data-testid={`ref-badge-${m[1]}`}
+              >
+                {p}
+              </button>
+            );
+          }
+          return p ? (
+            <input
+              key={i}
+              type="text"
+              value={p}
+              onChange={(e) => {
+                const newText = parts.map((pp, ii) => (ii === i ? e.target.value : pp)).join('');
+                setFormData({ ...formData, remarks: newText });
+              }}
+              onBlur={handleBlur}
+              className="qto-input flex-1 text-xs"
+              data-testid={`remarks-${row.id}`}
+            />
+          ) : null;
+        })}
+        {parts.every((p) => !p || /^\[REF-/.test(p)) && (
+          <input
+            type="text"
+            value=""
+            onChange={(e) => {
+              setFormData({ ...formData, remarks: (formData.remarks || '') + e.target.value });
+            }}
+            onBlur={handleBlur}
+            placeholder="Add note..."
+            className="qto-input flex-1 text-xs min-w-[80px]"
+            data-testid={`remarks-${row.id}-add`}
+          />
+        )}
+      </div>
+    );
   };
 
   return (
     <tr className={row.is_deduction ? 'bg-qto-error/10' : ''} data-testid={`boq-row-${row.id}`}>
       <td>
-        <input
-          type="text"
-          value={formData.item_no}
+        <input type="text" value={formData.item_no}
           onChange={(e) => setFormData({ ...formData, item_no: e.target.value })}
-          onFocus={onEdit}
-          onBlur={handleBlur}
-          className="qto-input w-full"
-          data-testid={`item-no-${row.id}`}
-        />
+          onBlur={handleBlur} className="qto-input w-full" data-testid={`item-no-${row.id}`} />
       </td>
       <td>
-        <input
-          type="text"
-          value={formData.description}
+        <input type="text" value={formData.description}
           onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-          onFocus={onEdit}
-          onBlur={handleBlur}
-          className="qto-input w-full"
-          data-testid={`description-${row.id}`}
-        />
+          onBlur={handleBlur} className="qto-input w-full" data-testid={`description-${row.id}`} />
       </td>
       <td>
-        <input
-          type="text"
-          value={formData.location}
-          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-          onFocus={onEdit}
-          onBlur={handleBlur}
-          className="qto-input w-full"
-          data-testid={`location-${row.id}`}
-        />
-      </td>
-      <td>
-        <input
-          type="text"
-          value={formData.drawing_ref}
-          onChange={(e) => setFormData({ ...formData, drawing_ref: e.target.value })}
-          onFocus={onEdit}
-          onBlur={handleBlur}
-          className="qto-input w-full"
-          data-testid={`drawing-ref-${row.id}`}
-        />
-      </td>
-      <td>
-        <input
-          type="text"
-          value={formData.spec_ref}
-          onChange={(e) => setFormData({ ...formData, spec_ref: e.target.value })}
-          onFocus={onEdit}
-          onBlur={handleBlur}
-          className="qto-input w-full"
-          data-testid={`spec-ref-${row.id}`}
-        />
-      </td>
-      <td>
-        <input
-          type="number"
-          step="0.01"
-          value={formData.nos}
-          onChange={(e) => setFormData({ ...formData, nos: parseFloat(e.target.value) || 0 })}
-          onFocus={onEdit}
-          onBlur={handleBlur}
-          className="qto-input w-full font-mono"
-          data-testid={`nos-${row.id}`}
-        />
-      </td>
-      <td>
-        <input
-          type="number"
-          step="0.01"
-          value={formData.length}
-          onChange={(e) => setFormData({ ...formData, length: parseFloat(e.target.value) || 0 })}
-          onFocus={onEdit}
-          onBlur={handleBlur}
-          className="qto-input w-full font-mono"
-          data-testid={`length-${row.id}`}
-        />
-      </td>
-      <td>
-        <input
-          type="number"
-          step="0.01"
-          value={formData.breadth}
-          onChange={(e) => setFormData({ ...formData, breadth: parseFloat(e.target.value) || 0 })}
-          onFocus={onEdit}
-          onBlur={handleBlur}
-          className="qto-input w-full font-mono"
-          data-testid={`breadth-${row.id}`}
-        />
-      </td>
-      <td>
-        <input
-          type="number"
-          step="0.01"
-          value={formData.depth}
-          onChange={(e) => setFormData({ ...formData, depth: parseFloat(e.target.value) || 0 })}
-          onFocus={onEdit}
-          onBlur={handleBlur}
-          className="qto-input w-full font-mono"
-          data-testid={`depth-${row.id}`}
-        />
-      </td>
-      <td>
-        <select
-          value={formData.unit}
-          onChange={(e) => {
-            setFormData({ ...formData, unit: e.target.value });
-            onEdit();
-          }}
-          onBlur={handleBlur}
-          className="qto-input w-full"
-          data-testid={`unit-${row.id}`}
-        >
-          <option value="m">m</option>
-          <option value="m²">m²</option>
-          <option value="m³">m³</option>
-          <option value="nr">nr</option>
-          <option value="kg">kg</option>
-          <option value="t">t</option>
-          <option value="ls">ls</option>
+        <select value={formData.unit}
+          onChange={(e) => { setFormData({ ...formData, unit: e.target.value }); onUpdate({ ...formData, unit: e.target.value }); }}
+          className="qto-input w-full text-xs" data-testid={`unit-${row.id}`}>
+          {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
         </select>
       </td>
-      <td className="font-mono font-bold text-qto-primary" data-testid={`quantity-${row.id}`}>
-        {row.quantity.toFixed(3)}
+      <td>
+        <input type="text" value={formData.location}
+          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+          onBlur={handleBlur} className="qto-input w-full" data-testid={`location-${row.id}`} />
+      </td>
+      <td>
+        <input type="text" value={formData.drawing_ref}
+          onChange={(e) => setFormData({ ...formData, drawing_ref: e.target.value })}
+          onBlur={handleBlur} className="qto-input w-full" data-testid={`drawing-ref-${row.id}`} />
+      </td>
+      <td>
+        <input type="text" value={formData.spec_ref}
+          onChange={(e) => setFormData({ ...formData, spec_ref: e.target.value })}
+          onBlur={handleBlur} className="qto-input w-full" data-testid={`spec-ref-${row.id}`} />
+      </td>
+      <td title="Number of times — enter manually">
+        <input type="number" step="0.01" value={formData.nos}
+          onChange={(e) => setFormData({ ...formData, nos: parseFloat(e.target.value) || 0 })}
+          onBlur={handleBlur} className="qto-input w-full font-mono" data-testid={`nos-${row.id}`} />
+      </td>
+      <td title={meta.length ? `Measured from ${meta.length}` : ''}>
+        <FieldWithMeasure
+          value={formData.length}
+          onChange={(e) => setFormData({ ...formData, length: parseFloat(e.target.value) || 0 })}
+          onBlur={handleBlur}
+          onMeasure={() => onMeasureField('length')}
+          testid={`length-${row.id}`}
+          measured={!!meta.length && meta.length !== 'manual'}
+        />
+      </td>
+      <td title={meta.breadth ? `Measured from ${meta.breadth}` : ''}>
+        <FieldWithMeasure
+          value={formData.breadth}
+          onChange={(e) => setFormData({ ...formData, breadth: parseFloat(e.target.value) || 0 })}
+          onBlur={handleBlur}
+          onMeasure={() => onMeasureField('breadth')}
+          testid={`breadth-${row.id}`}
+          measured={!!meta.breadth && meta.breadth !== 'manual'}
+        />
+      </td>
+      <td title={meta.depth ? `Measured from ${meta.depth}` : ''}>
+        <FieldWithMeasure
+          value={formData.depth}
+          onChange={(e) => setFormData({ ...formData, depth: parseFloat(e.target.value) || 0 })}
+          onBlur={handleBlur}
+          onMeasure={() => onMeasureField('depth')}
+          testid={`depth-${row.id}`}
+          measured={!!meta.depth && meta.depth !== 'manual'}
+        />
+      </td>
+      <td className="font-mono font-bold" data-testid={`quantity-${row.id}`}>
+        <div className="flex items-center justify-between gap-1">
+          <span className={signedQty != null && signedQty < 0 ? 'text-qto-error' : 'text-qto-primary'}>
+            {qty == null ? '—' : (signedQty < 0 ? `-${(-signedQty).toFixed(3)}` : signedQty.toFixed(3))}
+          </span>
+          <span className="text-[10px] bg-qto-primary/20 text-qto-primary px-1.5 py-0.5 rounded font-mono">
+            {formData.unit}
+          </span>
+        </div>
       </td>
       <td className="text-center">
-        <input
-          type="checkbox"
-          checked={formData.is_deduction}
-          onChange={(e) => {
-            setFormData({ ...formData, is_deduction: e.target.checked });
-            onUpdate({ ...formData, is_deduction: e.target.checked });
-          }}
-          className="w-4 h-4 accent-qto-error"
-          data-testid={`deduction-${row.id}`}
-        />
+        <input type="checkbox" checked={formData.is_deduction}
+          onChange={(e) => { setFormData({ ...formData, is_deduction: e.target.checked }); onUpdate({ ...formData, is_deduction: e.target.checked }); }}
+          className="w-4 h-4 accent-qto-error" data-testid={`deduction-${row.id}`} />
       </td>
-      <td>
-        <input
-          type="text"
-          value={formData.remarks}
-          onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-          onFocus={onEdit}
-          onBlur={handleBlur}
-          className="qto-input w-full"
-          data-testid={`remarks-${row.id}`}
-        />
-      </td>
+      <td>{renderRemarks()}</td>
       <td>
         <div className="flex gap-1">
-          <button
-            onClick={onMeasure}
-            className="p-1 hover:bg-qto-surface-hover rounded-qto transition-qto"
-            title="Measure from drawing"
-            data-testid={`measure-${row.id}`}
-          >
-            <Ruler className="w-4 h-4 text-qto-primary" />
+          <button onClick={() => onMeasureField('mark')} className="p-1 hover:bg-qto-surface-hover rounded-qto transition-qto" title="Add reference mark" data-testid={`mark-${row.id}`}>
+            <Pencil className="w-4 h-4 text-cyan-400" />
           </button>
-          <button
-            onClick={onDuplicate}
-            className="p-1 hover:bg-qto-surface-hover rounded-qto transition-qto"
-            title="Duplicate row"
-            data-testid={`duplicate-${row.id}`}
-          >
+          <button onClick={onDuplicate} className="p-1 hover:bg-qto-surface-hover rounded-qto transition-qto" title="Duplicate row" data-testid={`duplicate-${row.id}`}>
             <Copy className="w-4 h-4 text-qto-text-secondary" />
           </button>
-          <button
-            onClick={onDelete}
-            className="p-1 hover:bg-qto-surface-hover rounded-qto transition-qto"
-            title="Delete row"
-            data-testid={`delete-${row.id}`}
-          >
+          <button onClick={onDelete} className="p-1 hover:bg-qto-surface-hover rounded-qto transition-qto" title="Delete row" data-testid={`delete-${row.id}`}>
             <Trash2 className="w-4 h-4 text-qto-error" />
           </button>
         </div>
@@ -368,4 +363,5 @@ const BOQRow = ({ row, isEditing, onEdit, onUpdate, onDelete, onDuplicate, onMea
   );
 };
 
+export { computeQty, formatQty, UNIT_OPTIONS };
 export default BOQTable;
