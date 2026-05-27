@@ -189,7 +189,19 @@ const DrawingMeasurement = ({
   const finishPolygon = () => {
     if (currentPoints.length < 3) return;
     const area = calculatePolygonArea(currentPoints, scale.factor);
-    setMeasurements([...measurements, { id: crypto.randomUUID(), type: 'polygon', points: currentPoints, value: area.toFixed(3), unit: 'm²' }]);
+    // Compute bounding box so it can be sent to L + B if needed
+    const xs = currentPoints.map((p) => p.x);
+    const ys = currentPoints.map((p) => p.y);
+    const bboxW = (Math.max(...xs) - Math.min(...xs)) / scale.factor;
+    const bboxH = (Math.max(...ys) - Math.min(...ys)) / scale.factor;
+    setMeasurements([...measurements, {
+      id: crypto.randomUUID(),
+      type: 'polygon',
+      points: currentPoints,
+      value: area.toFixed(3),
+      dimensions: { width: bboxW.toFixed(3), height: bboxH.toFixed(3) },
+      unit: 'm²',
+    }]);
     setCurrentPoints([]);
   };
 
@@ -249,6 +261,27 @@ const DrawingMeasurement = ({
       breadth: parseFloat(rect.dimensions.height),
     }, selectedDrawing);
   };
+
+  // Send the latest polygon's bounding-box W → L, H → B
+  const sendPolyBBoxToLB = () => {
+    const poly = [...measurements].reverse().find((m) => m.type === 'polygon');
+    if (!poly || !poly.dimensions) return;
+    onSendToField('length+breadth', {
+      length: parseFloat(poly.dimensions.width),
+      breadth: parseFloat(poly.dimensions.height),
+    }, selectedDrawing);
+  };
+
+  // Send the latest area measurement (rect or poly) to L only (B stays 1).
+  const sendAreaToL = () => {
+    const m = [...measurements].reverse().find((x) => x.type === 'rectangle' || x.type === 'polygon');
+    if (!m) return;
+    onSendToField('length', parseFloat(m.value), selectedDrawing);
+  };
+
+  const hasLinear = measurements.some((m) => m.type === 'linear');
+  const hasRect = measurements.some((m) => m.type === 'rectangle');
+  const hasPoly = measurements.some((m) => m.type === 'polygon');
 
   const saveMark = async () => {
     if (!markPopover || !selectedDrawing) return;
@@ -422,19 +455,41 @@ const DrawingMeasurement = ({
                   </div>
                 </div>
 
-                {/* Send-to-field actions */}
-                {targetField && targetField !== 'mark' && (
-                  <>
-                    <button onClick={sendToField} disabled={!measurements.some((m) => m.type === 'linear')}
-                      className="qto-btn w-full text-xs flex items-center justify-center gap-1 mb-2" data-testid="send-to-field">
-                      <Save className="w-3 h-3" /> Send linear → {targetField === 'length' ? 'L' : targetField === 'breadth' ? 'B' : 'D/H'}
-                    </button>
-                    {measurements.some((m) => m.type === 'rectangle') && (
-                      <button onClick={sendRectToLB} className="qto-btn w-full text-xs flex items-center justify-center gap-1 mb-2" data-testid="send-rect-to-lb">
-                        <Save className="w-3 h-3" /> Send rectangle → L + B
+                {/* Send-to-row actions — always visible when measurements exist */}
+                {(hasLinear || hasRect || hasPoly) && row && (
+                  <div className="mb-3 p-3 bg-qto-bg rounded-qto border border-qto-border" data-testid="send-to-row-panel">
+                    <label className="qto-label">Send to BOQ Row</label>
+                    <div className="text-[10px] text-qto-text-secondary font-mono mb-2">
+                      → {row.item_no} · {row.description?.slice(0, 28)}
+                    </div>
+                    {hasLinear && (
+                      <>
+                        <button onClick={() => onSendToField('length', parseFloat(measurements.find((m) => m.type === 'linear').value), selectedDrawing)}
+                          className="qto-btn-secondary w-full text-xs mb-1" data-testid="send-linear-l">
+                          Linear → L
+                        </button>
+                        <button onClick={() => onSendToField('breadth', parseFloat(measurements.find((m) => m.type === 'linear').value), selectedDrawing)}
+                          className="qto-btn-secondary w-full text-xs mb-1" data-testid="send-linear-b">
+                          Linear → B
+                        </button>
+                      </>
+                    )}
+                    {hasRect && (
+                      <button onClick={sendRectToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-rect-to-lb">
+                        Rectangle (W × H) → L + B
                       </button>
                     )}
-                  </>
+                    {hasPoly && (
+                      <button onClick={sendPolyBBoxToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-poly-bbox-to-lb">
+                        Polygon bbox (W × H) → L + B
+                      </button>
+                    )}
+                    {(hasRect || hasPoly) && (
+                      <button onClick={sendAreaToL} className="qto-btn-secondary w-full text-xs" data-testid="send-area-to-l">
+                        Area value → L (B remains)
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 <button onClick={exportMarkedUp} disabled={!selectedDrawing}
