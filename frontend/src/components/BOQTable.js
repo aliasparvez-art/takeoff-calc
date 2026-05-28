@@ -86,7 +86,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings, marks = [], onMarksUpd
         </button>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="w-full">
         <table className="qto-table w-full">
           <thead>
             <tr>

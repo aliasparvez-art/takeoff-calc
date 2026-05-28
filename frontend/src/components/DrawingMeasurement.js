@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { X, Save, Minus, Maximize2, Pentagon, MapPin, ZoomIn, ZoomOut, Maximize, Download } from 'lucide-react';
+import { X, Save, Minus, Maximize2, Pentagon, MapPin, ZoomIn, ZoomOut, Maximize, Download, Spline, Circle as CircleIcon } from 'lucide-react';
 import api from '../lib/api';
 import logger from '../lib/logger';
-import { distancePx, calculateLinear, calculateRectangle, calculatePolygonArea, drawMeasurement } from '../lib/geometry';
+import { distancePx, calculateLinear, calculateRectangle, calculatePolygonArea, calculatePolylineLength, calculateCircle, drawMeasurement } from '../lib/geometry';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
@@ -181,9 +181,37 @@ const DrawingMeasurement = ({
         }]);
         setCurrentPoints([]);
       }
-    } else if (mode === 'polygon') {
+    } else if (mode === 'polygon' || mode === 'polyline') {
       setCurrentPoints([...currentPoints, p]);
+    } else if (mode === 'circle') {
+      if (currentPoints.length === 0) {
+        setCurrentPoints([p]);  // center
+      } else {
+        const { radius, diameter, circumference, area } = calculateCircle(currentPoints[0], p, scale.factor);
+        setMeasurements([...measurements, {
+          id: crypto.randomUUID(),
+          type: 'circle',
+          points: [currentPoints[0], p],
+          value: area.toFixed(3),
+          dimensions: { radius: radius.toFixed(3), diameter: diameter.toFixed(3), circumference: circumference.toFixed(3) },
+          unit: 'm²',
+        }]);
+        setCurrentPoints([]);
+      }
     }
+  };
+
+  const finishPolyline = () => {
+    if (currentPoints.length < 2) return;
+    const length = calculatePolylineLength(currentPoints, scale.factor);
+    setMeasurements([...measurements, {
+      id: crypto.randomUUID(),
+      type: 'polyline',
+      points: currentPoints,
+      value: length.toFixed(3),
+      unit: 'm',
+    }]);
+    setCurrentPoints([]);
   };
 
   const finishPolygon = () => {
@@ -262,14 +290,32 @@ const DrawingMeasurement = ({
     }, selectedDrawing);
   };
 
-  // Send the latest polygon's bounding-box W → L, H → B
+  // Send the latest polygon as a square of equivalent area: L = B = sqrt(area).
   const sendPolyBBoxToLB = () => {
     const poly = [...measurements].reverse().find((m) => m.type === 'polygon');
-    if (!poly || !poly.dimensions) return;
+    if (!poly) return;
+    const side = Math.sqrt(parseFloat(poly.value));
     onSendToField('length+breadth', {
-      length: parseFloat(poly.dimensions.width),
-      breadth: parseFloat(poly.dimensions.height),
+      length: parseFloat(side.toFixed(3)),
+      breadth: parseFloat(side.toFixed(3)),
     }, selectedDrawing);
+  };
+
+  // Send the latest circle: L = B = diameter (treats circle as bounding square).
+  const sendCircleToLB = () => {
+    const circ = [...measurements].reverse().find((m) => m.type === 'circle');
+    if (!circ || !circ.dimensions) return;
+    onSendToField('length+breadth', {
+      length: parseFloat(circ.dimensions.diameter),
+      breadth: parseFloat(circ.dimensions.diameter),
+    }, selectedDrawing);
+  };
+
+  // Send the latest curved/polyline length → L
+  const sendPolylineToL = () => {
+    const pl = [...measurements].reverse().find((m) => m.type === 'polyline');
+    if (!pl) return;
+    onSendToField('length', parseFloat(pl.value), selectedDrawing);
   };
 
   // Send the latest area measurement (rect or poly) to L only (B stays 1).
@@ -282,6 +328,8 @@ const DrawingMeasurement = ({
   const hasLinear = measurements.some((m) => m.type === 'linear');
   const hasRect = measurements.some((m) => m.type === 'rectangle');
   const hasPoly = measurements.some((m) => m.type === 'polygon');
+  const hasPolyline = measurements.some((m) => m.type === 'polyline');
+  const hasCircle = measurements.some((m) => m.type === 'circle');
 
   const saveMark = async () => {
     if (!markPopover || !selectedDrawing) return;
@@ -416,21 +464,40 @@ const DrawingMeasurement = ({
                     <button onClick={() => { setMode('linear'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'linear' ? 'bg-qto-primary text-qto-primary-text' : ''}`} data-testid="linear-tool">
                       <Minus className="w-3 h-3" /> Linear
                     </button>
+                    <button onClick={() => { setMode('polyline'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'polyline' ? 'bg-qto-primary text-qto-primary-text' : ''}`} data-testid="polyline-tool">
+                      <Spline className="w-3 h-3" /> Curved
+                    </button>
                     <button onClick={() => { setMode('rectangle'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'rectangle' ? 'bg-qto-primary text-qto-primary-text' : ''}`} data-testid="rectangle-tool">
                       <Maximize2 className="w-3 h-3" /> Rectangle
                     </button>
                     <button onClick={() => { setMode('polygon'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'polygon' ? 'bg-qto-primary text-qto-primary-text' : ''}`} data-testid="polygon-tool">
                       <Pentagon className="w-3 h-3" /> Polygon
                     </button>
+                    <button onClick={() => { setMode('circle'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'circle' ? 'bg-qto-primary text-qto-primary-text' : ''}`} data-testid="circle-tool">
+                      <CircleIcon className="w-3 h-3" /> Circle
+                    </button>
                     <button onClick={() => { setMode('mark'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'mark' ? 'bg-cyan-500 text-white' : ''}`} data-testid="mark-tool">
                       <MapPin className="w-3 h-3" /> Ref Mark
                     </button>
                     {mode === 'polygon' && currentPoints.length >= 3 && (
-                      <button onClick={finishPolygon} className="qto-btn col-span-2 text-xs" data-testid="finish-polygon">Close Polygon</button>
+                      <button onClick={finishPolygon} className="qto-btn col-span-2 text-xs" data-testid="finish-polygon">Close Polygon ({currentPoints.length} pts)</button>
+                    )}
+                    {mode === 'polyline' && currentPoints.length >= 2 && (
+                      <button onClick={finishPolyline} className="qto-btn col-span-2 text-xs" data-testid="finish-polyline">Finish Curved ({currentPoints.length} pts)</button>
                     )}
                   </div>
                   {mode === 'mark' && (
                     <p className="text-xs text-cyan-300 mt-2">Click on the drawing to place a reference mark.</p>
+                  )}
+                  {mode === 'circle' && (
+                    <p className="text-xs text-qto-text-secondary mt-2">
+                      {currentPoints.length === 0 ? 'Click center of circle' : 'Click any point on the edge'}
+                    </p>
+                  )}
+                  {mode === 'polyline' && (
+                    <p className="text-xs text-qto-text-secondary mt-2">
+                      Click points along the curve; click "Finish Curved" when done.
+                    </p>
                   )}
                 </div>
 
@@ -444,9 +511,24 @@ const DrawingMeasurement = ({
                           <span className="text-qto-text-secondary capitalize">{m.type}</span>
                           <span className="font-mono text-qto-primary font-bold">{m.value} {m.unit}</span>
                         </div>
-                        {m.dimensions && (
+                        {m.type === 'rectangle' && m.dimensions && (
                           <div className="text-[10px] text-qto-text-secondary font-mono mt-1">
                             W: {m.dimensions.width} m  ×  H: {m.dimensions.height} m
+                          </div>
+                        )}
+                        {m.type === 'polygon' && (
+                          <div className="text-[10px] text-qto-text-secondary font-mono mt-1">
+                            √area side: {Math.sqrt(parseFloat(m.value)).toFixed(3)} m
+                          </div>
+                        )}
+                        {m.type === 'circle' && m.dimensions && (
+                          <div className="text-[10px] text-qto-text-secondary font-mono mt-1">
+                            Ø: {m.dimensions.diameter} m  ·  C: {m.dimensions.circumference} m
+                          </div>
+                        )}
+                        {m.type === 'polyline' && (
+                          <div className="text-[10px] text-qto-text-secondary font-mono mt-1">
+                            {m.points.length} pts along curve
                           </div>
                         )}
                       </div>
@@ -456,7 +538,7 @@ const DrawingMeasurement = ({
                 </div>
 
                 {/* Send-to-row actions — always visible when measurements exist */}
-                {(hasLinear || hasRect || hasPoly) && row && (
+                {(hasLinear || hasRect || hasPoly || hasPolyline || hasCircle) && row && (
                   <div className="mb-3 p-3 bg-qto-bg rounded-qto border border-qto-border" data-testid="send-to-row-panel">
                     <label className="qto-label">Send to BOQ Row</label>
                     <div className="text-[10px] text-qto-text-secondary font-mono mb-2">
@@ -464,15 +546,20 @@ const DrawingMeasurement = ({
                     </div>
                     {hasLinear && (
                       <>
-                        <button onClick={() => onSendToField('length', parseFloat(measurements.find((m) => m.type === 'linear').value), selectedDrawing)}
+                        <button onClick={() => onSendToField('length', parseFloat(measurements.filter((m) => m.type === 'linear').pop().value), selectedDrawing)}
                           className="qto-btn-secondary w-full text-xs mb-1" data-testid="send-linear-l">
                           Linear → L
                         </button>
-                        <button onClick={() => onSendToField('breadth', parseFloat(measurements.find((m) => m.type === 'linear').value), selectedDrawing)}
+                        <button onClick={() => onSendToField('breadth', parseFloat(measurements.filter((m) => m.type === 'linear').pop().value), selectedDrawing)}
                           className="qto-btn-secondary w-full text-xs mb-1" data-testid="send-linear-b">
                           Linear → B
                         </button>
                       </>
+                    )}
+                    {hasPolyline && (
+                      <button onClick={sendPolylineToL} className="qto-btn-secondary w-full text-xs mb-1" data-testid="send-polyline-l">
+                        Curved length → L
+                      </button>
                     )}
                     {hasRect && (
                       <button onClick={sendRectToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-rect-to-lb">
@@ -480,11 +567,16 @@ const DrawingMeasurement = ({
                       </button>
                     )}
                     {hasPoly && (
-                      <button onClick={sendPolyBBoxToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-poly-bbox-to-lb">
-                        Polygon bbox (W × H) → L + B
+                      <button onClick={sendPolyBBoxToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-poly-to-lb">
+                        Polygon √area → L + B
                       </button>
                     )}
-                    {(hasRect || hasPoly) && (
+                    {hasCircle && (
+                      <button onClick={sendCircleToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-circle-to-lb">
+                        Circle (Ø) → L + B
+                      </button>
+                    )}
+                    {(hasRect || hasPoly || hasCircle) && (
                       <button onClick={sendAreaToL} className="qto-btn-secondary w-full text-xs" data-testid="send-area-to-l">
                         Area value → L (B remains)
                       </button>
