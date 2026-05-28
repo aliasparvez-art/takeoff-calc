@@ -142,5 +142,6 @@ export const generateFullReport = async ({ projectName, drawings, marks, boqRows
   });
 
   // The first jsPDF page is the cover (auto-created). All other pages were added via addPage.
-  doc.save(`${(projectName || 'QTO').replace(/[^A-Za-z0-9_\-]+/g, '_')}_FullReport.pdf`);
+  const safeName = ((projectName || 'QTO').trim().replace(/[^A-Za-z0-9_\-]+/g, '_')).replace(/_+$/, '');
+  doc.save(`${safeName}_FullReport.pdf`);
 };

@@ -93,6 +93,32 @@ Build a full-featured, production-grade Quantity Take-Off (QTO) web application 
 - Performance optimization for large BOQ datasets (10,000+ rows)
 - Add e2e tests for drawing measurement canvas interactions
 
+## Recent Updates (28 May 2026 — Session 4: Multi-page + Inline Edit + Full Report)
+
+### Frontend — Multi-page PDF support
+- ✅ `pdfPagesRef` array holds one off-screen canvas per page
+- ✅ Page navigation toolbar (prev/next + "Pg X/Y") in canvas — only shown when numPages > 1
+- ✅ Marks filtered by `drawing_id` AND `page` so each PDF page shows only its own marks
+- ✅ New marks save with `page: currentPage` (was hardcoded `1`)
+- ✅ Auto-switch to mark's page when opened via References "Open" arrow
+
+### Frontend — Inline Mark Edit on Canvas
+- ✅ Clicking near an existing mark (≤18 px) when idle or in 'mark' mode opens `EditMarkPopover`
+- ✅ Popover allows label edit (PATCH) and delete (DELETE)
+- ✅ Enter saves, Escape cancels
+
+### Frontend — Full Report PDF Export
+- ✅ NEW button "Export Full Report" in References tab
+- ✅ Generates landscape A4 PDF via jsPDF + jspdf-autotable:
+  - Cover page (project name, timestamp, drawings + marks count)
+  - One page per drawing-page with marks burned in
+  - Final References Index table
+- ✅ Filename: `<ProjectName>_FullReport.pdf` (sanitized, trimmed)
+- ✅ Verified: 3-page 1.3 MB PDF for "Civil Arc" project
+
+### Dependencies added
+- `jspdf`, `jspdf-autotable` (and html2canvas pulled in transitively)
+
 ## Recent Updates (28 May 2026 — Session 3)
 ### Backend
 - ✅ NEW `PATCH /api/projects/{project_id}/marks/{mark_id}` — update mark label and/or boq_row_id
