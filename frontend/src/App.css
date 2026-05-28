@@ -72,6 +72,17 @@
   border-color: #F59E0B;
 }
 
+/* Suppress native number-input spinner arrows on numeric cells per UX request. */
+.qto-input[type="number"]::-webkit-outer-spin-button,
+.qto-input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.qto-input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 .qto-btn {
   background-color: #F59E0B;
   color: #0F172A;

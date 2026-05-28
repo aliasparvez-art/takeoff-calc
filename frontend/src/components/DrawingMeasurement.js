@@ -301,15 +301,26 @@ const DrawingMeasurement = ({
     }, selectedDrawing);
   };
 
-  // Send the latest circle: L = B = diameter (treats circle as bounding square).
-  const sendCircleToLB = () => {
+  // Circle (Linear): send circumference → L
+  const sendCircleLinearToL = () => {
     const circ = [...measurements].reverse().find((m) => m.type === 'circle');
     if (!circ || !circ.dimensions) return;
+    onSendToField('length', parseFloat(circ.dimensions.circumference), selectedDrawing);
+  };
+
+  // Circle (Area): send r → L, π·r → B so L × B = π·r² = area
+  const sendCircleAreaToLB = () => {
+    const circ = [...measurements].reverse().find((m) => m.type === 'circle');
+    if (!circ || !circ.dimensions) return;
+    const r = parseFloat(circ.dimensions.radius);
     onSendToField('length+breadth', {
-      length: parseFloat(circ.dimensions.diameter),
-      breadth: parseFloat(circ.dimensions.diameter),
+      length: parseFloat(r.toFixed(3)),
+      breadth: parseFloat((Math.PI * r).toFixed(3)),
     }, selectedDrawing);
   };
+
+  // Backward-compatible alias kept in case anything references it.
+  const sendCircleToLB = sendCircleAreaToLB;
 
   // Send the latest curved/polyline length → L
   const sendPolylineToL = () => {
@@ -523,7 +534,7 @@ const DrawingMeasurement = ({
                         )}
                         {m.type === 'circle' && m.dimensions && (
                           <div className="text-[10px] text-qto-text-secondary font-mono mt-1">
-                            Ø: {m.dimensions.diameter} m  ·  C: {m.dimensions.circumference} m
+                            r: {m.dimensions.radius} m  ·  Ø: {m.dimensions.diameter} m  ·  C: {m.dimensions.circumference} m
                           </div>
                         )}
                         {m.type === 'polyline' && (
@@ -572,9 +583,14 @@ const DrawingMeasurement = ({
                       </button>
                     )}
                     {hasCircle && (
-                      <button onClick={sendCircleToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-circle-to-lb">
-                        Circle (Ø) → L + B
-                      </button>
+                      <>
+                        <button onClick={sendCircleLinearToL} className="qto-btn-secondary w-full text-xs mb-1" data-testid="send-circle-linear-l">
+                          Circle Linear (C → L)
+                        </button>
+                        <button onClick={sendCircleAreaToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-circle-area-lb">
+                          Circle Area (r → L, π·r → B)
+                        </button>
+                      </>
                     )}
                     {(hasRect || hasPoly || hasCircle) && (
                       <button onClick={sendAreaToL} className="qto-btn-secondary w-full text-xs" data-testid="send-area-to-l">
