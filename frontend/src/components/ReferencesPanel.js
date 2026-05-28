@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { ExternalLink, Trash2, Pencil, Check, X, Printer } from 'lucide-react';
+import { ExternalLink, Trash2, Pencil, Check, X, Printer, FileText } from 'lucide-react';
 import api from '../lib/api';
 import logger from '../lib/logger';
+import { generateFullReport } from '../lib/pdfReport';
 
-const ReferencesPanel = ({ projectId, marks, drawings, boqRows, onOpenMark, onMarksUpdate }) => {
+const ReferencesPanel = ({ projectId, projectName, marks, drawings, boqRows, onOpenMark, onMarksUpdate }) => {
   const [editingId, setEditingId] = useState(null);
   const [draftLabel, setDraftLabel] = useState('');
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const startEdit = (mark) => {
     setEditingId(mark.id);
@@ -39,6 +41,18 @@ const ReferencesPanel = ({ projectId, marks, drawings, boqRows, onOpenMark, onMa
     setTimeout(() => document.body.classList.remove('qto-print-refs'), 500);
   };
 
+  const handleExportFullReport = async () => {
+    setExportingPdf(true);
+    try {
+      await generateFullReport({ projectName, drawings, marks, boqRows });
+    } catch (e) {
+      logger.error('Export full report failed:', e);
+      window.alert('Export failed. See console for details.');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   if (marks.length === 0) {
     return (
       <div className="qto-panel p-12 text-center" data-testid="references-empty">
@@ -56,9 +70,14 @@ const ReferencesPanel = ({ projectId, marks, drawings, boqRows, onOpenMark, onMa
         <h3 className="text-lg font-heading font-semibold text-qto-text-primary">
           Drawing Reference Index
         </h3>
-        <button onClick={handlePrint} className="qto-btn-secondary flex items-center gap-2 text-xs no-print" data-testid="print-references">
-          <Printer className="w-4 h-4" /> Print Index
-        </button>
+        <div className="flex items-center gap-2 no-print">
+          <button onClick={handleExportFullReport} disabled={exportingPdf || drawings.length === 0} className="qto-btn flex items-center gap-2 text-xs" data-testid="export-full-report" title="Export drawings + index as a single PDF">
+            <FileText className="w-4 h-4" /> {exportingPdf ? 'Building PDF…' : 'Export Full Report'}
+          </button>
+          <button onClick={handlePrint} className="qto-btn-secondary flex items-center gap-2 text-xs" data-testid="print-references">
+            <Printer className="w-4 h-4" /> Print Index
+          </button>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="qto-table w-full">

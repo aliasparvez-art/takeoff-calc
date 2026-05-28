@@ -328,6 +328,7 @@ const ProjectView = () => {
         {activeTab === 'refs' && (
           <ReferencesPanel
             projectId={projectId}
+            projectName={project?.name}
             marks={marks}
             drawings={drawings}
             boqRows={boqRows}

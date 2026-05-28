@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { X, ZoomIn, ZoomOut, Maximize, Download } from 'lucide-react';
+import { X, ZoomIn, ZoomOut, Maximize, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../lib/api';
 import logger from '../lib/logger';
 import {
@@ -9,6 +9,7 @@ import {
   drawMeasurement,
 } from '../lib/geometry';
 import MarkPopover from './measurement/MarkPopover';
+import EditMarkPopover from './measurement/EditMarkPopover';
 import ScaleControls from './measurement/ScaleControls';
 import ToolPalette from './measurement/ToolPalette';
 import MeasurementsList from './measurement/MeasurementsList';
@@ -48,13 +49,17 @@ const DrawingMeasurement = ({
   const [markPopover, setMarkPopover] = useState(null);
   const [markLabel, setMarkLabel] = useState('');
   const [markRowId, setMarkRowId] = useState(row?.id || '');
+  const [editingMark, setEditingMark] = useState(null);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [numPages, setNumPages] = useState(1);
 
   const [depthInput, setDepthInput] = useState('');
 
   const pdfCanvasRef = useRef(null);
   const overlayCanvasRef = useRef(null);
   const containerRef = useRef(null);
-  const pdfImageRef = useRef(null);
+  const pdfPagesRef = useRef([]); // array of off-screen canvases, one per page
 
   const loadDrawing = useCallback(async (drawing) => {
     if (!drawing) return;
@@ -63,33 +68,40 @@ const DrawingMeasurement = ({
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
 
+      const pages = [];
       if (drawing.filename.toLowerCase().endsWith('.pdf')) {
         const pdf = await pdfjsLib.getDocument(url).promise;
-        const page = await pdf.getPage(1);
-        const viewport = page.getViewport({ scale: 1.5 });
-        const off = document.createElement('canvas');
-        off.width = viewport.width; off.height = viewport.height;
-        await page.render({ canvasContext: off.getContext('2d'), viewport }).promise;
-        pdfImageRef.current = off;
+        for (let pn = 1; pn <= pdf.numPages; pn += 1) {
+          const page = await pdf.getPage(pn);
+          const viewport = page.getViewport({ scale: 1.5 });
+          const off = document.createElement('canvas');
+          off.width = viewport.width; off.height = viewport.height;
+          await page.render({ canvasContext: off.getContext('2d'), viewport }).promise;
+          pages.push(off);
+        }
       } else {
         const img = new Image();
         await new Promise((res) => { img.onload = res; img.src = url; });
         const off = document.createElement('canvas');
         off.width = img.width; off.height = img.height;
         off.getContext('2d').drawImage(img, 0, 0);
-        pdfImageRef.current = off;
+        pages.push(off);
       }
-      const w = pdfImageRef.current.width;
-      const h = pdfImageRef.current.height;
-      if (pdfCanvasRef.current) { pdfCanvasRef.current.width = w; pdfCanvasRef.current.height = h; }
-      if (overlayCanvasRef.current) { overlayCanvasRef.current.width = w; overlayCanvasRef.current.height = h; }
+      pdfPagesRef.current = pages;
+      setNumPages(pages.length);
+      setCurrentPage(1);
       setScale({ factor: drawing.scale_factor || 1.0, ratio: drawing.scale_ratio || '1:1' });
       setZoom(1.0); setPan({ x: 0, y: 0 });
       setMeasurements([]); setCurrentPoints([]);
+      // Render first page immediately (the [currentPage] effect won't fire if currentPage stays 1)
       requestAnimationFrame(() => {
-        if (pdfCanvasRef.current && pdfImageRef.current) {
-          pdfCanvasRef.current.getContext('2d').drawImage(pdfImageRef.current, 0, 0);
-        }
+        const src = pages[0];
+        if (!src || !pdfCanvasRef.current || !overlayCanvasRef.current) return;
+        pdfCanvasRef.current.width = src.width;
+        pdfCanvasRef.current.height = src.height;
+        overlayCanvasRef.current.width = src.width;
+        overlayCanvasRef.current.height = src.height;
+        pdfCanvasRef.current.getContext('2d').drawImage(src, 0, 0);
       });
       URL.revokeObjectURL(url);
     } catch (e) { logger.error('Load drawing failed:', e); }
@@ -98,6 +110,27 @@ const DrawingMeasurement = ({
   useEffect(() => {
     if (selectedDrawing) loadDrawing(selectedDrawing);
   }, [selectedDrawing, loadDrawing]);
+
+  // Render current page to visible canvas
+  useEffect(() => {
+    const src = pdfPagesRef.current[currentPage - 1];
+    if (!src || !pdfCanvasRef.current || !overlayCanvasRef.current) return;
+    pdfCanvasRef.current.width = src.width;
+    pdfCanvasRef.current.height = src.height;
+    overlayCanvasRef.current.width = src.width;
+    overlayCanvasRef.current.height = src.height;
+    pdfCanvasRef.current.getContext('2d').drawImage(src, 0, 0);
+    // also clear measurements/points when switching pages
+    setMeasurements([]); setCurrentPoints([]); setMarkPopover(null);
+  }, [currentPage, numPages]);
+
+  // If we got a focusMarkId, auto-switch to that mark's page once marks/drawing settled
+  useEffect(() => {
+    if (!focusMarkId) return;
+    const m = marks.find((mm) => mm.id === focusMarkId);
+    if (m && m.page && m.page !== currentPage) setCurrentPage(m.page);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusMarkId, marks, numPages]);
 
   const renderMark = (ctx, mark, focused) => {
     const r = 16;
@@ -131,9 +164,11 @@ const DrawingMeasurement = ({
       ctx.lineTo(calibrationLine.x2, calibrationLine.y2);
       ctx.stroke();
     }
-    const drawingMarks = selectedDrawing ? marks.filter((m) => m.drawing_id === selectedDrawing.id) : [];
+    const drawingMarks = selectedDrawing
+      ? marks.filter((m) => m.drawing_id === selectedDrawing.id && (m.page || 1) === currentPage)
+      : [];
     drawingMarks.forEach((m) => renderMark(ctx, m, m.id === focusMarkId));
-  }, [measurements, calibrationLine, marks, selectedDrawing, focusMarkId]);
+  }, [measurements, calibrationLine, marks, selectedDrawing, focusMarkId, currentPage]);
 
   const toCanvasCoords = (e) => {
     const rect = overlayCanvasRef.current.getBoundingClientRect();
@@ -155,7 +190,20 @@ const DrawingMeasurement = ({
       return;
     }
 
+    // Inline-edit existing marks (hit test by radius), only when NOT actively measuring/marking
+    if (selectedDrawing && !mode) {
+      const hit = marks
+        .filter((m) => m.drawing_id === selectedDrawing.id && (m.page || 1) === currentPage)
+        .find((m) => Math.hypot(m.position_x - p.x, m.position_y - p.y) <= 18);
+      if (hit) { setEditingMark(hit); return; }
+    }
+
     if (mode === 'mark') {
+      // Also allow clicking an existing mark while in 'mark' mode to edit it instead of creating
+      const hit = marks
+        .filter((m) => m.drawing_id === selectedDrawing.id && (m.page || 1) === currentPage)
+        .find((m) => Math.hypot(m.position_x - p.x, m.position_y - p.y) <= 18);
+      if (hit) { setEditingMark(hit); return; }
       setMarkPopover({ x: p.x, y: p.y });
       return;
     }
@@ -314,7 +362,7 @@ const DrawingMeasurement = ({
     try {
       const { data } = await api.post(`/projects/${projectId}/marks`, {
         drawing_id: selectedDrawing.id,
-        page: 1,
+        page: currentPage,
         position_x: markPopover.x,
         position_y: markPopover.y,
         boq_row_id: markRowId,
@@ -325,16 +373,35 @@ const DrawingMeasurement = ({
     } catch (e) { logger.error('Save mark failed:', e); }
   };
 
+  const handleEditMarkSave = async (newLabel) => {
+    if (!editingMark) return;
+    try {
+      await api.patch(`/projects/${projectId}/marks/${editingMark.id}`, { label: newLabel });
+      onMarksUpdate && onMarksUpdate();
+    } catch (e) { logger.error('Update mark failed:', e); }
+    finally { setEditingMark(null); }
+  };
+
+  const handleEditMarkDelete = async () => {
+    if (!editingMark) return;
+    try {
+      await api.delete(`/projects/${projectId}/marks/${editingMark.id}`);
+      onMarksUpdate && onMarksUpdate();
+    } catch (e) { logger.error('Delete mark failed:', e); }
+    finally { setEditingMark(null); }
+  };
+
   const exportMarkedUp = () => {
-    if (!selectedDrawing || !pdfImageRef.current) return;
-    const src = pdfImageRef.current;
+    if (!selectedDrawing) return;
+    const src = pdfPagesRef.current[currentPage - 1];
+    if (!src) return;
     const out = document.createElement('canvas');
     const legendH = 60;
     out.width = src.width; out.height = src.height + legendH;
     const ctx = out.getContext('2d');
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, out.width, out.height);
     ctx.drawImage(src, 0, 0);
-    const drawingMarks = marks.filter((m) => m.drawing_id === selectedDrawing.id);
+    const drawingMarks = marks.filter((m) => m.drawing_id === selectedDrawing.id && (m.page || 1) === currentPage);
     drawingMarks.forEach((m) => renderMark(ctx, m, false));
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, src.height, out.width, legendH);
     ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
@@ -343,11 +410,11 @@ const DrawingMeasurement = ({
     ctx.font = '14px IBM Plex Sans';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     const date = new Date().toLocaleDateString();
-    ctx.fillText(`Drawing: ${selectedDrawing.filename} pg.1`, 16, src.height + 20);
+    ctx.fillText(`Drawing: ${selectedDrawing.filename} pg.${currentPage}/${numPages}`, 16, src.height + 20);
     ctx.fillText(`Marks: ${drawingMarks.length}    |    Exported: ${date}`, 16, src.height + 42);
     const link = document.createElement('a');
     link.href = out.toDataURL('image/png');
-    link.download = `${selectedDrawing.filename.replace(/\.[^.]+$/, '')}_marked.png`;
+    link.download = `${selectedDrawing.filename.replace(/\.[^.]+$/, '')}_pg${currentPage}_marked.png`;
     link.click();
   };
 
@@ -458,7 +525,17 @@ const DrawingMeasurement = ({
                   <button onClick={fitZoom} className="px-2 py-1 text-xs hover:bg-qto-surface-active rounded font-mono" title="Fit"><Maximize className="w-4 h-4 text-qto-text-primary" /></button>
                   <button onClick={() => handleZoom(0.1)} className="p-1 hover:bg-qto-surface-active rounded" title="Zoom in"><ZoomIn className="w-4 h-4 text-qto-text-primary" /></button>
                   <span className="text-xs font-mono text-qto-text-primary px-2">{Math.round(zoom * 100)}%</span>
-                  <span className="text-xs text-qto-text-secondary px-2">Shift+drag to pan</span>
+                  {numPages > 1 && (
+                    <>
+                      <span className="w-px h-4 bg-qto-border mx-1" />
+                      <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1} className="p-1 hover:bg-qto-surface-active rounded disabled:opacity-30" title="Previous page" data-testid="prev-page"><ChevronLeft className="w-4 h-4 text-qto-text-primary" /></button>
+                      <span className="text-xs font-mono text-qto-text-primary px-1" data-testid="page-indicator">
+                        Pg {currentPage}/{numPages}
+                      </span>
+                      <button onClick={() => setCurrentPage((p) => Math.min(numPages, p + 1))} disabled={currentPage >= numPages} className="p-1 hover:bg-qto-surface-active rounded disabled:opacity-30" title="Next page" data-testid="next-page"><ChevronRight className="w-4 h-4 text-qto-text-primary" /></button>
+                    </>
+                  )}
+                  <span className="text-xs text-qto-text-secondary px-2">Shift+drag to pan · click mark to edit</span>
                 </div>
 
                 <div
@@ -485,6 +562,14 @@ const DrawingMeasurement = ({
                       setMarkLabel={setMarkLabel}
                       onCancel={() => { setMarkPopover(null); setMarkLabel(''); }}
                       onSave={saveMark}
+                    />
+                  )}
+                  {editingMark && (
+                    <EditMarkPopover
+                      mark={editingMark}
+                      onClose={() => setEditingMark(null)}
+                      onSave={handleEditMarkSave}
+                      onDelete={handleEditMarkDelete}
                     />
                   )}
                 </div>

@@ -1,0 +1,70 @@
+{
+  "summary": "Frontend-only test of 3 new features: (1) Export Full Report PDF, (2) Inline mark edit on canvas via EditMarkPopover, (3) Multi-page PDF conditional page-nav UI. All 3 features VERIFIED WORKING. Also re-verified References-tab inline label edit, PATCH /marks endpoint integration, and modal open-from-references-arrow.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "BOQTable.js (ref-badge orphan detection)",
+        "issue": "Ref badges REF-011, REF-012, REF-013 displayed in BOQ row remarks render as orphan/disabled (red strikethrough, cursor-not-allowed, disabled attribute) even though those marks exist and are editable from the canvas and References tab. This means BOQ ref-badge click STILL does not open the modal for these marks - now visibly disabled instead of silently no-op (UX improved over iteration 3 but root cause not fully fixed). RCA: `allMarks={marks}` is passed correctly and the fallback `rowMarks.find(...) || allMarks.find(...)` is in place, so the only way isOrphan=true is if these ref_ids are not present in the marks array at the moment of render, OR if the marks have stale references. Suspect: marks prop in BOQTable may be loaded asynchronously after first render and not re-triggering on prop change, OR the regex `/^\\[(REF-\\d{3})/` matches and then mark lookup fails because marks list contains these but maybe with case differences. Worth a quick log of `marks.map(m=>m.ref_id)` vs `m[1]` to confirm.",
+        "selector": "[data-testid=\"ref-badge-REF-011\"]",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "pdfReport.js (filename generation)",
+        "issue": "Downloaded PDF filename has a double underscore: 'Civil_Arc__FullReport.pdf' instead of 'Civil_Arc_FullReport.pdf'. Likely because projectName has a trailing space ('Civil Arc ') and regex `/[^A-Za-z0-9_\\-]+/g` collapses the space to '_' producing 'Civil_Arc_' then concatenated with '_FullReport.pdf'. Cosmetic but visible to users. Fix: trim projectName before sanitizing.",
+        "selector": "n/a",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_4.json"],
+  "action_items": [
+    "Investigate BOQ ref-badge orphan styling for REF-011/012/013 - marks exist but rendered disabled. Add console log of allMarks prop length in BOQRow when isOrphan=true to verify timing/prop hydration.",
+    "Trim projectName before regex sanitize in pdfReport.js line 145 to avoid 'Civil_Arc__FullReport.pdf' double-underscore filename.",
+    "(Out-of-scope but noted) Multi-page mark.page assignment and auto page-switch on Open could not be functionally validated because seed PDF '150KL 12M (1).pdf' has only 1 page. Code path verified by inspection: saveMark uses `page: currentPage` (line 365) and onOpenMark useEffect at line 131 sets `setCurrentPage(m.page)` when m.page !== currentPage. Recommend uploading a multi-page PDF to seed data for next iteration."
+  ],
+  "critical_code_review_comments": [
+    "pdfReport.js: generateFullReport correctly produces 1.3MB PDF with cover + drawing page (marks burned in) + autoTable references index. Uses jsPDF + jspdf-autotable + pdfjsLib. Renders marks via canvas composite.",
+    "EditMarkPopover.js: well-structured, uses window.confirm for delete (acceptable), autoFocus on label input, Enter=save, Escape=cancel.",
+    "DrawingMeasurement.js handleCanvasClick hit-test (line 194-199): 18px radius, only fires when !mode (idle state) AND when in 'mark' mode (line 203-206) - good UX letting users always click existing marks to edit.",
+    "Page-nav toolbar correctly gated by `numPages > 1` - data-testids prev-page/next-page/page-indicator all absent for single-page PDF, present otherwise.",
+    "pdfReport.js generateFullReport: catches per-drawing fetch errors with `continue` (line 75) but does NOT surface to user - a drawing that fails to fetch will be silently omitted from PDF. Minor."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only test)", "frontend": "100% on requested features (3/3 verified). Pre-existing BOQ ref-badge orphan rendering issue persists for 3 specific marks but is visually indicated to user (improved over silent no-op)."},
+  "test_credentials": "alias.parvez@gmail.com / Km@249535678 (project 'Civil Arc' - 12 marks). admin@qto.com / admin123 (not used).",
+  "seed_data_creation": "Modified labels of REF-001 (now 'TEST_Refs_76563') and REF-011 (now 'TEST_Canvas_28238') during PATCH verification. Both persist in DB.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Civil Arc project has 12 marks all on single-page PDF '150KL 12M (1).pdf'. Canvas opens at CSS rect {left: 642, top: 114, width: 3672, height: 2517}. PDF render takes ~3500ms after modal open - always wait for canvas.width > 1000 before clicking. REF-011 is at natural (504.4, 397.6). REF-001 label is now 'TEST_Refs_76563'. REF-011 label is 'TEST_Canvas_28238'. To test multi-page behaviors functionally, upload a multi-page PDF first.",
+  "evidence": {
+    "export_full_report": {
+      "downloaded_filename": "Civil_Arc__FullReport.pdf",
+      "size_bytes": 1324134,
+      "size_check_50kb": "PASS",
+      "btn_text_during": "Building PDF…",
+      "btn_disabled_during": true,
+      "btn_text_after": "Export Full Report"
+    },
+    "multi_page_ui": {
+      "page-indicator-present": false,
+      "prev-page-present": false,
+      "next-page-present": false,
+      "note": "Correct: single-page PDF -> no page nav rendered"
+    },
+    "inline_edit_canvas": {
+      "popover_opened_on_click_near_REF011": true,
+      "label_prepopulated": "Edited via Canvas",
+      "save_PATCH_status": 200,
+      "popover_closed_after_save": true,
+      "label_persisted_on_reopen": true,
+      "popover_closed_after_cancel": true
+    },
+    "references_tab_inline_edit": {
+      "REF-001_new_label_persisted": "TEST_Refs_76563",
+      "status": "PASS"
+    }
+  }
+}
