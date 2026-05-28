@@ -640,8 +640,8 @@ const DrawingMeasurement = ({
                   className="w-full h-full relative"
                   style={{ cursor: isPanning ? 'grabbing' : (mode || isCalibrating ? 'crosshair' : 'default') }}
                 >
-                  <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: 'top left' }}>
-                    <canvas ref={pdfCanvasRef} className="absolute top-0 left-0" />
+                  <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: 'top left', display: 'inline-block', position: 'relative' }}>
+                    <canvas ref={pdfCanvasRef} className="block" />
                     <canvas ref={overlayCanvasRef} onClick={handleCanvasClick} className="absolute top-0 left-0" data-testid="measurement-canvas" />
                   </div>
 
