@@ -13,6 +13,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
 from bson import ObjectId
 
 from auth import hash_password, verify_password, create_access_token, create_refresh_token, get_current_user
@@ -24,7 +25,7 @@ from models import (
     BOQRowCreate, BOQRowResponse,
     DrawingCreate, DrawingResponse,
     RateAnalysisCreate, RateAnalysisResponse,
-    MarkCreate, MarkResponse
+    MarkCreate, MarkResponse, MarkUpdate
 )
 
 # MongoDB connection
@@ -346,7 +347,7 @@ async def list_boq_rows(project_id: str, request: Request):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
     
-    rows = await db.boq_rows.find({"project_id": project_id}, {"_id": 1, "project_id": 1, "item_no": 1, "description": 1, "location": 1, "drawing_ref": 1, "spec_ref": 1, "remarks": 1, "nos": 1, "length": 1, "breadth": 1, "depth": 1, "unit": 1, "quantity": 1, "is_deduction": 1, "order": 1, "created_at": 1}).sort("order", 1).to_list(10000)
+    rows = await db.boq_rows.find({"project_id": project_id}, {"_id": 1, "project_id": 1, "item_no": 1, "description": 1, "location": 1, "drawing_ref": 1, "spec_ref": 1, "remarks": 1, "nos": 1, "length": 1, "breadth": 1, "depth": 1, "unit": 1, "quantity": 1, "is_deduction": 1, "order": 1, "created_at": 1, "measurement_meta": 1}).sort("order", 1).to_list(10000)
     return [serialize_boq_row(r) for r in rows]
 
 @api_router.put("/projects/{project_id}/boq-rows/{row_id}", response_model=BOQRowResponse)
@@ -373,7 +374,8 @@ async def update_boq_row(project_id: str, row_id: str, row_input: BOQRowCreate, 
             "depth": row_input.depth,
             "unit": row_input.unit,
             "quantity": quantity,
-            "is_deduction": row_input.is_deduction
+            "is_deduction": row_input.is_deduction,
+            "measurement_meta": row_input.measurement_meta or {},
         }}
     )
 
@@ -634,6 +636,29 @@ async def delete_mark(project_id: str, mark_id: str, request: Request):
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Mark not found")
     return {"message": "Mark deleted"}
+
+
+@api_router.patch("/projects/{project_id}/marks/{mark_id}", response_model=MarkResponse)
+async def update_mark(project_id: str, mark_id: str, mark_update: MarkUpdate, request: Request):
+    await _verify_project_access(project_id, request)
+    update_doc = {}
+    if mark_update.label is not None:
+        update_doc["label"] = mark_update.label
+    if mark_update.boq_row_id is not None:
+        update_doc["boq_row_id"] = mark_update.boq_row_id
+    if not update_doc:
+        existing = await db.marks.find_one({"_id": ObjectId(mark_id), "project_id": project_id})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Mark not found")
+        return _serialize_mark(existing)
+    result = await db.marks.find_one_and_update(
+        {"_id": ObjectId(mark_id), "project_id": project_id},
+        {"$set": update_doc},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Mark not found")
+    return _serialize_mark(result)
 
 
 

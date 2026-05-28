@@ -1,9 +1,18 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { X, Save, Minus, Maximize2, Pentagon, MapPin, ZoomIn, ZoomOut, Maximize, Download, Spline, Circle as CircleIcon } from 'lucide-react';
+import { X, ZoomIn, ZoomOut, Maximize, Download } from 'lucide-react';
 import api from '../lib/api';
 import logger from '../lib/logger';
-import { distancePx, calculateLinear, calculateRectangle, calculatePolygonArea, calculatePolylineLength, calculateCircle, drawMeasurement } from '../lib/geometry';
+import {
+  distancePx, calculateLinear, calculateRectangle,
+  calculatePolygonArea, calculatePolylineLength, calculateCircle,
+  drawMeasurement,
+} from '../lib/geometry';
+import MarkPopover from './measurement/MarkPopover';
+import ScaleControls from './measurement/ScaleControls';
+import ToolPalette from './measurement/ToolPalette';
+import MeasurementsList from './measurement/MeasurementsList';
+import SendToBOQPanel from './measurement/SendToBOQPanel';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
@@ -12,7 +21,7 @@ const API = `${BACKEND_URL}/api`;
 
 const DrawingMeasurement = ({
   projectId, row, drawings, marks = [], targetField, focusMarkId, initialDrawingId,
-  onClose, onSendToField, onMarkSaved, onMarksUpdate
+  onClose, onSendToField, onMarkSaved, onMarksUpdate,
 }) => {
   const [selectedDrawing, setSelectedDrawing] = useState(
     () => drawings.find((d) => d.id === initialDrawingId) || null
@@ -23,33 +32,29 @@ const DrawingMeasurement = ({
   const [isPanning, setIsPanning] = useState(false);
   const panStart = useRef({ x: 0, y: 0 });
 
-  // Calibration
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [calibrationLine, setCalibrationLine] = useState(null);
   const [knownLength, setKnownLength] = useState('');
 
-  // Measurement
   const [mode, setMode] = useState(
     targetField === 'depth' ? null
-    : targetField === 'mark' ? 'mark'
-    : targetField ? 'linear'
-    : null
+      : targetField === 'mark' ? 'mark'
+        : targetField ? 'linear'
+          : null
   );
   const [measurements, setMeasurements] = useState([]);
   const [currentPoints, setCurrentPoints] = useState([]);
 
-  // Mark mode (Enhancement 6)
-  const [markPopover, setMarkPopover] = useState(null); // { x, y, ref_id }
+  const [markPopover, setMarkPopover] = useState(null);
   const [markLabel, setMarkLabel] = useState('');
   const [markRowId, setMarkRowId] = useState(row?.id || '');
 
-  // D/H overlay (Enhancement 5)
   const [depthInput, setDepthInput] = useState('');
 
   const pdfCanvasRef = useRef(null);
   const overlayCanvasRef = useRef(null);
   const containerRef = useRef(null);
-  const pdfImageRef = useRef(null); // store the original rendered bitmap
+  const pdfImageRef = useRef(null);
 
   const loadDrawing = useCallback(async (drawing) => {
     if (!drawing) return;
@@ -62,7 +67,6 @@ const DrawingMeasurement = ({
         const pdf = await pdfjsLib.getDocument(url).promise;
         const page = await pdf.getPage(1);
         const viewport = page.getViewport({ scale: 1.5 });
-        // Render to offscreen canvas to keep the original bitmap
         const off = document.createElement('canvas');
         off.width = viewport.width; off.height = viewport.height;
         await page.render({ canvasContext: off.getContext('2d'), viewport }).promise;
@@ -75,7 +79,6 @@ const DrawingMeasurement = ({
         off.getContext('2d').drawImage(img, 0, 0);
         pdfImageRef.current = off;
       }
-      // Sync visible canvases
       const w = pdfImageRef.current.width;
       const h = pdfImageRef.current.height;
       if (pdfCanvasRef.current) { pdfCanvasRef.current.width = w; pdfCanvasRef.current.height = h; }
@@ -83,7 +86,6 @@ const DrawingMeasurement = ({
       setScale({ factor: drawing.scale_factor || 1.0, ratio: drawing.scale_ratio || '1:1' });
       setZoom(1.0); setPan({ x: 0, y: 0 });
       setMeasurements([]); setCurrentPoints([]);
-      // Render bitmap to visible canvas after the next paint to ensure canvas is mounted with new dims.
       requestAnimationFrame(() => {
         if (pdfCanvasRef.current && pdfImageRef.current) {
           pdfCanvasRef.current.getContext('2d').drawImage(pdfImageRef.current, 0, 0);
@@ -96,25 +98,6 @@ const DrawingMeasurement = ({
   useEffect(() => {
     if (selectedDrawing) loadDrawing(selectedDrawing);
   }, [selectedDrawing, loadDrawing]);
-
-  // Redraw overlay whenever measurements, marks, zoom, or pan changes
-  useEffect(() => {
-    const canvas = overlayCanvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    measurements.forEach((m) => drawMeasurement(ctx, m));
-    if (calibrationLine && calibrationLine.x2 != null) {
-      ctx.strokeStyle = '#F59E0B'; ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(calibrationLine.x1, calibrationLine.y1);
-      ctx.lineTo(calibrationLine.x2, calibrationLine.y2);
-      ctx.stroke();
-    }
-    // Render marks for this drawing
-    const drawingMarks = selectedDrawing ? marks.filter((m) => m.drawing_id === selectedDrawing.id) : [];
-    drawingMarks.forEach((m) => renderMark(ctx, m, m.id === focusMarkId));
-  }, [measurements, calibrationLine, marks, selectedDrawing, focusMarkId]);
 
   const renderMark = (ctx, mark, focused) => {
     const r = 16;
@@ -134,14 +117,28 @@ const DrawingMeasurement = ({
     }
   };
 
-  // Convert client mouse coords to canvas (drawing) coords, accounting for zoom+pan
+  // Redraw overlay whenever measurements, marks, or focus changes
+  useEffect(() => {
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    measurements.forEach((m) => drawMeasurement(ctx, m));
+    if (calibrationLine && calibrationLine.x2 != null) {
+      ctx.strokeStyle = '#F59E0B'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(calibrationLine.x1, calibrationLine.y1);
+      ctx.lineTo(calibrationLine.x2, calibrationLine.y2);
+      ctx.stroke();
+    }
+    const drawingMarks = selectedDrawing ? marks.filter((m) => m.drawing_id === selectedDrawing.id) : [];
+    drawingMarks.forEach((m) => renderMark(ctx, m, m.id === focusMarkId));
+  }, [measurements, calibrationLine, marks, selectedDrawing, focusMarkId]);
+
   const toCanvasCoords = (e) => {
     const rect = overlayCanvasRef.current.getBoundingClientRect();
-    // The canvas is visually transformed by CSS scale(zoom) translate(pan).
-    // We invert: subtract bounding rect origin, then divide by displayed-to-natural ratio.
     const cssX = e.clientX - rect.left;
     const cssY = e.clientY - rect.top;
-    // rect already reflects scale (because CSS transform applies)
     const nx = (cssX / rect.width) * overlayCanvasRef.current.width;
     const ny = (cssY / rect.height) * overlayCanvasRef.current.height;
     return { x: nx, y: ny };
@@ -159,7 +156,6 @@ const DrawingMeasurement = ({
     }
 
     if (mode === 'mark') {
-      // Auto ref ID is allocated server-side; show popover for label + row
       setMarkPopover({ x: p.x, y: p.y });
       return;
     }
@@ -177,7 +173,7 @@ const DrawingMeasurement = ({
         const { width, height, area } = calculateRectangle(currentPoints[0], p, scale.factor);
         setMeasurements([...measurements, {
           id: crypto.randomUUID(), type: 'rectangle', points: [currentPoints[0], p],
-          value: area.toFixed(3), dimensions: { width: width.toFixed(3), height: height.toFixed(3) }, unit: 'm²'
+          value: area.toFixed(3), dimensions: { width: width.toFixed(3), height: height.toFixed(3) }, unit: 'm²',
         }]);
         setCurrentPoints([]);
       }
@@ -185,7 +181,7 @@ const DrawingMeasurement = ({
       setCurrentPoints([...currentPoints, p]);
     } else if (mode === 'circle') {
       if (currentPoints.length === 0) {
-        setCurrentPoints([p]);  // center
+        setCurrentPoints([p]);
       } else {
         const { radius, diameter, circumference, area } = calculateCircle(currentPoints[0], p, scale.factor);
         setMeasurements([...measurements, {
@@ -205,11 +201,8 @@ const DrawingMeasurement = ({
     if (currentPoints.length < 2) return;
     const length = calculatePolylineLength(currentPoints, scale.factor);
     setMeasurements([...measurements, {
-      id: crypto.randomUUID(),
-      type: 'polyline',
-      points: currentPoints,
-      value: length.toFixed(3),
-      unit: 'm',
+      id: crypto.randomUUID(), type: 'polyline', points: currentPoints,
+      value: length.toFixed(3), unit: 'm',
     }]);
     setCurrentPoints([]);
   };
@@ -217,18 +210,13 @@ const DrawingMeasurement = ({
   const finishPolygon = () => {
     if (currentPoints.length < 3) return;
     const area = calculatePolygonArea(currentPoints, scale.factor);
-    // Compute bounding box so it can be sent to L + B if needed
     const xs = currentPoints.map((p) => p.x);
     const ys = currentPoints.map((p) => p.y);
     const bboxW = (Math.max(...xs) - Math.min(...xs)) / scale.factor;
     const bboxH = (Math.max(...ys) - Math.min(...ys)) / scale.factor;
     setMeasurements([...measurements, {
-      id: crypto.randomUUID(),
-      type: 'polygon',
-      points: currentPoints,
-      value: area.toFixed(3),
-      dimensions: { width: bboxW.toFixed(3), height: bboxH.toFixed(3) },
-      unit: 'm²',
+      id: crypto.randomUUID(), type: 'polygon', points: currentPoints,
+      value: area.toFixed(3), dimensions: { width: bboxW.toFixed(3), height: bboxH.toFixed(3) }, unit: 'm²',
     }]);
     setCurrentPoints([]);
   };
@@ -240,7 +228,6 @@ const DrawingMeasurement = ({
     const ratio = `1:${Math.round(factor)}`;
     setScale({ factor, ratio });
     setIsCalibrating(false); setCalibrationLine(null); setKnownLength('');
-    // Persist (Enhancement 2)
     if (selectedDrawing) {
       try {
         await api.put(`/drawings/${selectedDrawing.id}/scale`, { scale_factor: factor, scale_ratio: ratio });
@@ -250,12 +237,7 @@ const DrawingMeasurement = ({
 
   const handleZoom = (delta) => setZoom((z) => Math.max(0.25, Math.min(4, z + delta)));
   const fitZoom = () => { setZoom(1.0); setPan({ x: 0, y: 0 }); };
-
-  const handleWheel = (e) => {
-    e.preventDefault();
-    handleZoom(e.deltaY < 0 ? 0.1 : -0.1);
-  };
-
+  const handleWheel = (e) => { e.preventDefault(); handleZoom(e.deltaY < 0 ? 0.1 : -0.1); };
   const handleMouseDown = (e) => {
     if (e.button === 1 || e.shiftKey) {
       setIsPanning(true);
@@ -273,14 +255,19 @@ const DrawingMeasurement = ({
       onSendToField('depth', v, selectedDrawing);
       return;
     }
-    // For length / breadth: pick first linear measurement
     const linear = measurements.find((m) => m.type === 'linear');
     if (linear && targetField) {
       onSendToField(targetField, parseFloat(linear.value), selectedDrawing);
     }
   };
 
-  // Send the latest rectangle's W → L, H → B (Issue 3 fix).
+  // Send helpers passed to SendToBOQPanel
+  const sendLinearToL = (v) => onSendToField('length', v, selectedDrawing);
+  const sendLinearToB = (v) => onSendToField('breadth', v, selectedDrawing);
+  const sendPolylineToL = () => {
+    const pl = [...measurements].reverse().find((m) => m.type === 'polyline');
+    if (pl) onSendToField('length', parseFloat(pl.value), selectedDrawing);
+  };
   const sendRectToLB = () => {
     const rect = [...measurements].reverse().find((m) => m.type === 'rectangle');
     if (!rect || !rect.dimensions) return;
@@ -289,8 +276,6 @@ const DrawingMeasurement = ({
       breadth: parseFloat(rect.dimensions.height),
     }, selectedDrawing);
   };
-
-  // Send the latest polygon as a square of equivalent area: L = B = sqrt(area).
   const sendPolyBBoxToLB = () => {
     const poly = [...measurements].reverse().find((m) => m.type === 'polygon');
     if (!poly) return;
@@ -300,40 +285,22 @@ const DrawingMeasurement = ({
       breadth: parseFloat(side.toFixed(3)),
     }, selectedDrawing);
   };
-
-  // Circle (Linear): send circumference → L
   const sendCircleLinearToL = () => {
-    const circ = [...measurements].reverse().find((m) => m.type === 'circle');
-    if (!circ || !circ.dimensions) return;
-    onSendToField('length', parseFloat(circ.dimensions.circumference), selectedDrawing);
+    const c = [...measurements].reverse().find((m) => m.type === 'circle');
+    if (c && c.dimensions) onSendToField('length', parseFloat(c.dimensions.circumference), selectedDrawing);
   };
-
-  // Circle (Area): send r → L, π·r → B so L × B = π·r² = area
   const sendCircleAreaToLB = () => {
-    const circ = [...measurements].reverse().find((m) => m.type === 'circle');
-    if (!circ || !circ.dimensions) return;
-    const r = parseFloat(circ.dimensions.radius);
+    const c = [...measurements].reverse().find((m) => m.type === 'circle');
+    if (!c || !c.dimensions) return;
+    const r = parseFloat(c.dimensions.radius);
     onSendToField('length+breadth', {
       length: parseFloat(r.toFixed(3)),
       breadth: parseFloat((Math.PI * r).toFixed(3)),
     }, selectedDrawing);
   };
-
-  // Backward-compatible alias kept in case anything references it.
-  const sendCircleToLB = sendCircleAreaToLB;
-
-  // Send the latest curved/polyline length → L
-  const sendPolylineToL = () => {
-    const pl = [...measurements].reverse().find((m) => m.type === 'polyline');
-    if (!pl) return;
-    onSendToField('length', parseFloat(pl.value), selectedDrawing);
-  };
-
-  // Send the latest area measurement (rect or poly) to L only (B stays 1).
   const sendAreaToL = () => {
     const m = [...measurements].reverse().find((x) => x.type === 'rectangle' || x.type === 'polygon');
-    if (!m) return;
-    onSendToField('length', parseFloat(m.value), selectedDrawing);
+    if (m) onSendToField('length', parseFloat(m.value), selectedDrawing);
   };
 
   const hasLinear = measurements.some((m) => m.type === 'linear');
@@ -367,10 +334,8 @@ const DrawingMeasurement = ({
     const ctx = out.getContext('2d');
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, out.width, out.height);
     ctx.drawImage(src, 0, 0);
-    // Marks
     const drawingMarks = marks.filter((m) => m.drawing_id === selectedDrawing.id);
     drawingMarks.forEach((m) => renderMark(ctx, m, false));
-    // Legend strip
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, src.height, out.width, legendH);
     ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
     ctx.strokeRect(0, src.height, out.width, legendH);
@@ -389,6 +354,8 @@ const DrawingMeasurement = ({
   const calibratedSummary = scale.factor !== 1.0
     ? `Scale: 1px = ${(1 / scale.factor).toFixed(4)} m  (${scale.ratio})`
     : null;
+
+  const startCalibrate = () => { setIsCalibrating(true); setCalibrationLine(null); };
 
   return (
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50" data-testid="drawing-measurement-modal">
@@ -433,173 +400,37 @@ const DrawingMeasurement = ({
 
             {selectedDrawing && targetField !== 'depth' && (
               <>
-                {/* Scale Status (Enhancement 2) */}
-                <div className="mb-4 p-3 bg-qto-bg rounded-qto" data-testid="scale-status">
-                  {calibratedSummary ? (
-                    <>
-                      <p className="text-xs font-mono text-qto-text-primary">{calibratedSummary}</p>
-                      <button onClick={() => { setIsCalibrating(true); setCalibrationLine(null); }}
-                        className="qto-btn-secondary w-full mt-2 text-xs" data-testid="recalibrate-button">
-                        Recalibrate
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-xs text-qto-primary font-mono">⚠ Not calibrated</p>
-                      <button onClick={() => { setIsCalibrating(true); setCalibrationLine(null); }}
-                        className="qto-btn w-full mt-2 text-xs" data-testid="set-scale-button">
-                        Set Scale
-                      </button>
-                    </>
-                  )}
-                  {isCalibrating && (
-                    <div className="mt-2">
-                      <p className="text-xs text-qto-text-secondary mb-1">
-                        {!calibrationLine ? 'Click to start line' : !calibrationLine.x2 ? 'Click to end line' : 'Enter known length'}
-                      </p>
-                      {calibrationLine?.x2 && (
-                        <>
-                          <input type="number" step="0.01" value={knownLength} onChange={(e) => setKnownLength(e.target.value)}
-                            placeholder="Length (m)" className="qto-input w-full text-xs mb-1" data-testid="known-length-input" />
-                          <button onClick={applyCalibration} className="qto-btn w-full text-xs" data-testid="apply-calibration">Apply</button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Tools */}
-                <div className="mb-4">
-                  <label className="qto-label">Tools</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button onClick={() => { setMode('linear'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'linear' ? 'bg-qto-primary text-qto-primary-text' : ''}`} data-testid="linear-tool">
-                      <Minus className="w-3 h-3" /> Linear
-                    </button>
-                    <button onClick={() => { setMode('polyline'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'polyline' ? 'bg-qto-primary text-qto-primary-text' : ''}`} data-testid="polyline-tool">
-                      <Spline className="w-3 h-3" /> Curved
-                    </button>
-                    <button onClick={() => { setMode('rectangle'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'rectangle' ? 'bg-qto-primary text-qto-primary-text' : ''}`} data-testid="rectangle-tool">
-                      <Maximize2 className="w-3 h-3" /> Rectangle
-                    </button>
-                    <button onClick={() => { setMode('polygon'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'polygon' ? 'bg-qto-primary text-qto-primary-text' : ''}`} data-testid="polygon-tool">
-                      <Pentagon className="w-3 h-3" /> Polygon
-                    </button>
-                    <button onClick={() => { setMode('circle'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'circle' ? 'bg-qto-primary text-qto-primary-text' : ''}`} data-testid="circle-tool">
-                      <CircleIcon className="w-3 h-3" /> Circle
-                    </button>
-                    <button onClick={() => { setMode('mark'); setCurrentPoints([]); }} className={`qto-btn-secondary flex items-center gap-1 text-xs ${mode === 'mark' ? 'bg-cyan-500 text-white' : ''}`} data-testid="mark-tool">
-                      <MapPin className="w-3 h-3" /> Ref Mark
-                    </button>
-                    {mode === 'polygon' && currentPoints.length >= 3 && (
-                      <button onClick={finishPolygon} className="qto-btn col-span-2 text-xs" data-testid="finish-polygon">Close Polygon ({currentPoints.length} pts)</button>
-                    )}
-                    {mode === 'polyline' && currentPoints.length >= 2 && (
-                      <button onClick={finishPolyline} className="qto-btn col-span-2 text-xs" data-testid="finish-polyline">Finish Curved ({currentPoints.length} pts)</button>
-                    )}
-                  </div>
-                  {mode === 'mark' && (
-                    <p className="text-xs text-cyan-300 mt-2">Click on the drawing to place a reference mark.</p>
-                  )}
-                  {mode === 'circle' && (
-                    <p className="text-xs text-qto-text-secondary mt-2">
-                      {currentPoints.length === 0 ? 'Click center of circle' : 'Click any point on the edge'}
-                    </p>
-                  )}
-                  {mode === 'polyline' && (
-                    <p className="text-xs text-qto-text-secondary mt-2">
-                      Click points along the curve; click "Finish Curved" when done.
-                    </p>
-                  )}
-                </div>
-
-                {/* Measurements list */}
-                <div className="mb-4">
-                  <label className="qto-label">Captured ({measurements.length})</label>
-                  <div className="space-y-1 max-h-40 overflow-y-auto">
-                    {measurements.map((m) => (
-                      <div key={m.id} className="p-2 bg-qto-bg rounded-qto text-xs">
-                        <div className="flex justify-between">
-                          <span className="text-qto-text-secondary capitalize">{m.type}</span>
-                          <span className="font-mono text-qto-primary font-bold">{m.value} {m.unit}</span>
-                        </div>
-                        {m.type === 'rectangle' && m.dimensions && (
-                          <div className="text-[10px] text-qto-text-secondary font-mono mt-1">
-                            W: {m.dimensions.width} m  ×  H: {m.dimensions.height} m
-                          </div>
-                        )}
-                        {m.type === 'polygon' && (
-                          <div className="text-[10px] text-qto-text-secondary font-mono mt-1">
-                            √area side: {Math.sqrt(parseFloat(m.value)).toFixed(3)} m
-                          </div>
-                        )}
-                        {m.type === 'circle' && m.dimensions && (
-                          <div className="text-[10px] text-qto-text-secondary font-mono mt-1">
-                            r: {m.dimensions.radius} m  ·  Ø: {m.dimensions.diameter} m  ·  C: {m.dimensions.circumference} m
-                          </div>
-                        )}
-                        {m.type === 'polyline' && (
-                          <div className="text-[10px] text-qto-text-secondary font-mono mt-1">
-                            {m.points.length} pts along curve
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    {measurements.length === 0 && <p className="text-xs text-qto-text-secondary">No measurements yet</p>}
-                  </div>
-                </div>
-
-                {/* Send-to-row actions — always visible when measurements exist */}
-                {(hasLinear || hasRect || hasPoly || hasPolyline || hasCircle) && row && (
-                  <div className="mb-3 p-3 bg-qto-bg rounded-qto border border-qto-border" data-testid="send-to-row-panel">
-                    <label className="qto-label">Send to BOQ Row</label>
-                    <div className="text-[10px] text-qto-text-secondary font-mono mb-2">
-                      → {row.item_no} · {row.description?.slice(0, 28)}
-                    </div>
-                    {hasLinear && (
-                      <>
-                        <button onClick={() => onSendToField('length', parseFloat(measurements.filter((m) => m.type === 'linear').pop().value), selectedDrawing)}
-                          className="qto-btn-secondary w-full text-xs mb-1" data-testid="send-linear-l">
-                          Linear → L
-                        </button>
-                        <button onClick={() => onSendToField('breadth', parseFloat(measurements.filter((m) => m.type === 'linear').pop().value), selectedDrawing)}
-                          className="qto-btn-secondary w-full text-xs mb-1" data-testid="send-linear-b">
-                          Linear → B
-                        </button>
-                      </>
-                    )}
-                    {hasPolyline && (
-                      <button onClick={sendPolylineToL} className="qto-btn-secondary w-full text-xs mb-1" data-testid="send-polyline-l">
-                        Curved length → L
-                      </button>
-                    )}
-                    {hasRect && (
-                      <button onClick={sendRectToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-rect-to-lb">
-                        Rectangle (W × H) → L + B
-                      </button>
-                    )}
-                    {hasPoly && (
-                      <button onClick={sendPolyBBoxToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-poly-to-lb">
-                        Polygon √area → L + B
-                      </button>
-                    )}
-                    {hasCircle && (
-                      <>
-                        <button onClick={sendCircleLinearToL} className="qto-btn-secondary w-full text-xs mb-1" data-testid="send-circle-linear-l">
-                          Circle Linear (C → L)
-                        </button>
-                        <button onClick={sendCircleAreaToLB} className="qto-btn w-full text-xs mb-1" data-testid="send-circle-area-lb">
-                          Circle Area (r → L, π·r → B)
-                        </button>
-                      </>
-                    )}
-                    {(hasRect || hasPoly || hasCircle) && (
-                      <button onClick={sendAreaToL} className="qto-btn-secondary w-full text-xs" data-testid="send-area-to-l">
-                        Area value → L (B remains)
-                      </button>
-                    )}
-                  </div>
-                )}
-
+                <ScaleControls
+                  calibratedSummary={calibratedSummary}
+                  isCalibrating={isCalibrating}
+                  calibrationLine={calibrationLine}
+                  knownLength={knownLength}
+                  setKnownLength={setKnownLength}
+                  onStartCalibrate={startCalibrate}
+                  onApplyCalibration={applyCalibration}
+                />
+                <ToolPalette
+                  mode={mode}
+                  setMode={(m) => { setMode(m); setCurrentPoints([]); }}
+                  currentPoints={currentPoints}
+                  onFinishPolygon={finishPolygon}
+                  onFinishPolyline={finishPolyline}
+                />
+                <MeasurementsList measurements={measurements} />
+                <SendToBOQPanel
+                  row={row}
+                  measurements={measurements}
+                  hasLinear={hasLinear} hasRect={hasRect} hasPoly={hasPoly}
+                  hasPolyline={hasPolyline} hasCircle={hasCircle}
+                  onSendLinearToL={sendLinearToL}
+                  onSendLinearToB={sendLinearToB}
+                  onSendPolylineToL={sendPolylineToL}
+                  onSendRectToLB={sendRectToLB}
+                  onSendPolyToLB={sendPolyBBoxToLB}
+                  onSendCircleLinearToL={sendCircleLinearToL}
+                  onSendCircleAreaToLB={sendCircleAreaToLB}
+                  onSendAreaToL={sendAreaToL}
+                />
                 <button onClick={exportMarkedUp} disabled={!selectedDrawing}
                   className="qto-btn-secondary w-full text-xs flex items-center justify-center gap-1" data-testid="export-markup">
                   <Download className="w-3 h-3" /> Export Marked-Up PNG
@@ -622,7 +453,6 @@ const DrawingMeasurement = ({
               </div>
             ) : (
               <>
-                {/* Zoom toolbar (Enhancement 3) */}
                 <div className="qto-canvas-toolbar" data-testid="zoom-toolbar">
                   <button onClick={() => handleZoom(-0.1)} className="p-1 hover:bg-qto-surface-active rounded" title="Zoom out"><ZoomOut className="w-4 h-4 text-qto-text-primary" /></button>
                   <button onClick={fitZoom} className="px-2 py-1 text-xs hover:bg-qto-surface-active rounded font-mono" title="Fit"><Maximize className="w-4 h-4 text-qto-text-primary" /></button>
@@ -645,30 +475,17 @@ const DrawingMeasurement = ({
                     <canvas ref={overlayCanvasRef} onClick={handleCanvasClick} className="absolute top-0 left-0" data-testid="measurement-canvas" />
                   </div>
 
-                  {/* Mark popover — anchored top-right so it's always visible regardless of where user clicked. */}
                   {markPopover && (
-                    <div className="absolute top-16 right-4 bg-qto-surface border border-qto-primary rounded-qto p-4 shadow-2xl z-30 w-72"
-                      data-testid="mark-popover">
-                      <div className="text-xs font-mono text-qto-primary mb-2">
-                        Mark @ ({Math.round(markPopover.x)}, {Math.round(markPopover.y)})
-                      </div>
-                      <div className="mb-2">
-                        <label className="qto-label">Link to BOQ Row</label>
-                        <select value={markRowId} onChange={(e) => setMarkRowId(e.target.value)} className="qto-input w-full text-xs" data-testid="mark-row-select">
-                          <option value="">-- Optional --</option>
-                          {row && <option value={row.id}>{row.item_no} - {row.description}</option>}
-                        </select>
-                      </div>
-                      <div className="mb-3">
-                        <label className="qto-label">Label</label>
-                        <input type="text" value={markLabel} onChange={(e) => setMarkLabel(e.target.value)}
-                          placeholder="e.g. Column base pad" className="qto-input w-full text-xs" data-testid="mark-label" />
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => setMarkPopover(null)} className="qto-btn-secondary text-xs flex-1">Cancel</button>
-                        <button onClick={saveMark} className="qto-btn text-xs flex-1" data-testid="save-mark">Save Mark</button>
-                      </div>
-                    </div>
+                    <MarkPopover
+                      position={markPopover}
+                      row={row}
+                      markRowId={markRowId}
+                      setMarkRowId={setMarkRowId}
+                      markLabel={markLabel}
+                      setMarkLabel={setMarkLabel}
+                      onCancel={() => { setMarkPopover(null); setMarkLabel(''); }}
+                      onSave={saveMark}
+                    />
                   )}
                 </div>
               </>

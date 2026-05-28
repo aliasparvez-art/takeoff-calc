@@ -36,3 +36,55 @@ code {
     @apply transition-colors duration-150 ease-out;
   }
 }
+/* Print styles for References Index */
+@media print {
+  body.qto-print-refs {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  body.qto-print-refs * {
+    visibility: hidden;
+  }
+  body.qto-print-refs .qto-references-print,
+  body.qto-print-refs .qto-references-print * {
+    visibility: visible;
+  }
+  body.qto-print-refs .qto-references-print {
+    position: absolute;
+    inset: 0;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 12mm !important;
+  }
+  body.qto-print-refs .qto-references-print .no-print {
+    display: none !important;
+  }
+  body.qto-print-refs .qto-references-print h3 {
+    color: #000000 !important;
+    border-bottom: 2px solid #000;
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+  }
+  body.qto-print-refs .qto-references-print table {
+    width: 100%;
+    border-collapse: collapse;
+    color: #000 !important;
+  }
+  body.qto-print-refs .qto-references-print th,
+  body.qto-print-refs .qto-references-print td {
+    border: 1px solid #333 !important;
+    padding: 6px 8px !important;
+    background: #ffffff !important;
+    color: #000 !important;
+    text-align: left;
+  }
+  body.qto-print-refs .qto-references-print th {
+    background: #e5e7eb !important;
+    font-weight: bold;
+  }
+  body.qto-print-refs .qto-references-print .text-qto-primary {
+    color: #000 !important;
+  }
+}

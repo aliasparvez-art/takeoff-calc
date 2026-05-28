@@ -1,0 +1,53 @@
+{
+  "summary": "Tested new PATCH /marks endpoint, measurement_meta persistence, References tab inline edit/delete/open/print, DrawingMeasurement refactor. Backend: 33/33 tests passing (10 new). Frontend: References tab inline edit/delete/open/print all work; DrawingMeasurement modal opens with refactored subcomponents (ScaleControls, ToolPalette with Linear/Curved/Rectangle/Polygon/Circle/Ref Mark) rendering correctly. FOUND BUG: BOQ row remarks ref badges (e.g. ref-badge-REF-013) do NOT open DrawingMeasurement modal — silently no-op due to mark lookup mismatch.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "BOQTable.js (BOQRow renderRemarks)",
+        "issue": "Clicking [REF-XXX] badge in BOQ row remarks does NOT open DrawingMeasurement modal. The handler `onClick={() => mark && onOpenRef(mark)}` (line 260) silently no-ops when `rowMarks.find(x => x.ref_id === m[1])` returns undefined. This happens because `marksByRow` (line 85-87) only indexes marks that have `boq_row_id` set AND when that boq_row_id matches the current row.id. In the 'Civil Arc' seeded project, marks REF-011/012/013 appear as badges in row remarks but their boq_row_id either is null or points to a different row id, so badges become dead buttons.",
+        "selector": "[data-testid=\"ref-badge-REF-013\"]",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "BOQ remarks ref badge click -> open DrawingMeasurement modal",
+        "issue": "Badge click does not open modal. Verified via Playwright: MODAL_AFTER_BADGE_CLICK returns present:false. References tab 'Open' button (open-ref-REF-001) DOES correctly trigger modal — that flow works.",
+        "affected_selectors": ["[data-testid^=\"ref-badge-REF-\"]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/marks_results.xml"
+  ],
+  "action_items": [
+    "Fix BOQ row ref-badge onClick: change `onClick={() => mark && onOpenRef(mark)}` to fall back to a global marks lookup (find by ref_id across all marks regardless of boq_row_id) so that orphan/legacy marks still open the modal. Suggested fix in BOQTable.js: pass full `marks` prop into BOQRow and use `marks.find(x => x.ref_id === m[1])` as fallback when rowMarks misses; also auto-set mark.boq_row_id on first open via PATCH /marks endpoint (already implemented backend-side)."
+  ],
+  "critical_code_review_comments": [
+    "DrawingMeasurement refactor into /components/measurement/* (MarkPopover, ScaleControls, ToolPalette, MeasurementsList, SendToBOQPanel) verified — modal opens and tool palette renders all 6 tools incl. Ref Mark.",
+    "PATCH /api/projects/{project_id}/marks/{mark_id} endpoint correctly handles label-only, boq_row_id-only, both, empty body (returns existing), and 404 for non-existent mark.",
+    "measurement_meta is correctly persisted on POST/PUT BOQ rows and returned on GET — backend serialize/build helpers do the right thing.",
+    "Console shows two 401 errors during initial app load on /login (likely /api/auth/me probe before authenticated). Non-critical but noisy.",
+    "Stale-mark/orphan-badge UX: ref badges with no matching mark in rowMarks silently no-op — should at least show tooltip or visual indication."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (added TestMarksAndMeasurementMeta class with 10 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (33/33 backend tests, including 10 new marks/measurement_meta tests)",
+    "frontend": "85% (5/6 user flows verified: login, References tab inline edit label PASS, delete mark PASS [13->12], print button enabled, Open-from-references PASS opening DrawingMeasurement modal; BOQ ref-badge click FAILS to open modal)"
+  },
+  "test_credentials": "alias.parvez@gmail.com / Km@249535678 (project 'Civil Arc' with 1 drawing + 13 marks - DELETE test reduced to 12)",
+  "seed_data_creation": "None - used existing 'Civil Arc' project. One mark was deleted by the delete-mark test (REF-NNN trailing).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All backend functionality for PATCH /marks and measurement_meta works. Seeded Civil Arc project had 13 marks, now 12 (one deleted during testing). The DrawingMeasurement modal opens correctly via References tab Open icon but NOT via BOQ row ref badges. Inline label edit in References tab works (verified label 'QA-81562' saved to REF-001 - that label is now persistent in DB). To test Ref Mark create flow end-to-end after the badge fix, also note that canvas requires click within visible viewport (e.g. 800x400) due to large CSS dimensions.",
+  "rca of the issue": "BOQ ref-badge bug RCA: In /app/frontend/src/components/BOQTable.js line 256-260, the BOQRow component receives `rowMarks={marksByRow[row.id] || []}` — a list of marks pre-filtered to those whose `boq_row_id` equals this row's id. Then `mark = rowMarks.find(x => x.ref_id === m[1])` only checks within this narrow list. Marks that exist with a matching ref_id but unset/mismatched boq_row_id will not be found, and `mark && onOpenRef(mark)` evaluates to false, so nothing happens on click. Reproduction: login as alias.parvez, open 'Civil Arc', go to BOQ tab, click any [REF-XXX] badge in Remarks column — modal does not open. Mitigation: pass entire `marks` array to BOQRow and use it as a fallback lookup if rowMarks miss. Alternatively, when opening, also send PATCH /marks/{id} with `boq_row_id=row.id` to back-fill the link going forward."
+}

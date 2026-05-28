@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../lib/api';
 import logger from '../lib/logger';
 import { Plus, Trash2, Copy, Ruler, Pencil } from 'lucide-react';
@@ -19,9 +19,21 @@ const computeQty = (row) => {
 
 const formatQty = (qty) => (qty == null ? '—' : qty.toFixed(3));
 
-const BOQTable = ({ projectId, rows, onRefresh, drawings, marks = [], onMarksUpdate }) => {
+const BOQTable = ({ projectId, rows, onRefresh, drawings, marks = [], onMarksUpdate, pendingOpenMark, onPendingOpenMarkConsumed }) => {
   const [showMeasurement, setShowMeasurement] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // React to a "open mark" request from the References tab.
+  useEffect(() => {
+    if (pendingOpenMark) {
+      setShowMeasurement({
+        rowId: pendingOpenMark.boq_row_id || null,
+        focusMarkId: pendingOpenMark.id,
+        drawingId: pendingOpenMark.drawing_id,
+      });
+      onPendingOpenMarkConsumed && onPendingOpenMarkConsumed();
+    }
+  }, [pendingOpenMark, onPendingOpenMarkConsumed]);
 
   const defaultRow = {
     item_no: '', description: '', location: '', drawing_ref: '',

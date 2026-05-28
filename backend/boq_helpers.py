@@ -41,6 +41,7 @@ def serialize_boq_row(row_doc: dict) -> BOQRowResponse:
         created_at=row_doc["created_at"].isoformat()
             if isinstance(row_doc.get("created_at"), datetime)
             else row_doc.get("created_at", datetime.now(timezone.utc).isoformat()),
+        measurement_meta=row_doc.get("measurement_meta", {}) or {},
     )
 
 
@@ -67,4 +68,5 @@ def build_boq_row_doc(project_id: str, row_input, order: int, _ObjectId) -> dict
         "is_deduction": row_input.is_deduction,
         "order": order,
         "created_at": datetime.now(timezone.utc),
+        "measurement_meta": getattr(row_input, "measurement_meta", {}) or {},
     }

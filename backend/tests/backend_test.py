@@ -341,5 +341,167 @@ class TestBruteForce:
         assert r6.status_code == 429, f"Expected lockout, got {r6.status_code}"
 
 
+# ------------------- Marks (References) - NEW PATCH endpoint + measurement_meta -------------------
+class TestMarksAndMeasurementMeta:
+    """Tests for new PATCH /marks endpoint and measurement_meta persistence on BOQ rows."""
+
+    def _create_drawing(self, admin_session, project_id):
+        pdf_bytes = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Count 0>>endobj\nxref\n0 3\n0000000000 65535 f\ntrailer<</Size 3/Root 1 0 R>>\nstartxref\n100\n%%EOF"
+        files = {"file": ("mark_test.pdf", io.BytesIO(pdf_bytes), "application/pdf")}
+        r = admin_session.post(f"{API}/projects/{project_id}/drawings", files=files)
+        return r
+
+    def test_create_mark_with_label(self, admin_session, temp_project):
+        dr = self._create_drawing(admin_session, temp_project)
+        if dr.status_code != 200:
+            pytest.skip("Drawing upload failed - storage not available")
+        drawing_id = dr.json()["id"]
+        r = admin_session.post(f"{API}/projects/{temp_project}/marks", json={
+            "drawing_id": drawing_id, "position_x": 100.5, "position_y": 200.5,
+            "label": "Wall-A1", "page": 1
+        })
+        assert r.status_code == 200, r.text
+        m = r.json()
+        assert m["label"] == "Wall-A1"
+        assert m["ref_id"].startswith("REF-")
+        assert m["position_x"] == 100.5
+        assert "id" in m
+
+        # Verify persistence via list
+        lst = admin_session.get(f"{API}/projects/{temp_project}/marks").json()
+        assert any(x["id"] == m["id"] and x["label"] == "Wall-A1" for x in lst)
+
+    def test_patch_mark_label(self, admin_session, temp_project):
+        dr = self._create_drawing(admin_session, temp_project)
+        if dr.status_code != 200:
+            pytest.skip("Drawing upload failed")
+        drawing_id = dr.json()["id"]
+        # Create mark
+        c = admin_session.post(f"{API}/projects/{temp_project}/marks", json={
+            "drawing_id": drawing_id, "position_x": 10, "position_y": 20, "label": "OldLabel"
+        })
+        mid = c.json()["id"]
+        # PATCH label
+        p = admin_session.patch(f"{API}/projects/{temp_project}/marks/{mid}", json={"label": "NewLabel"})
+        assert p.status_code == 200, p.text
+        assert p.json()["label"] == "NewLabel"
+        # Verify persistence
+        lst = admin_session.get(f"{API}/projects/{temp_project}/marks").json()
+        match = [x for x in lst if x["id"] == mid][0]
+        assert match["label"] == "NewLabel"
+
+    def test_patch_mark_boq_row_id(self, admin_session, temp_project):
+        dr = self._create_drawing(admin_session, temp_project)
+        if dr.status_code != 200:
+            pytest.skip("Drawing upload failed")
+        drawing_id = dr.json()["id"]
+        # Create BOQ row
+        br = admin_session.post(f"{API}/projects/{temp_project}/boq-rows", json={
+            "item_no": "M1", "description": "Mark target", "nos": 1
+        })
+        row_id = br.json()["id"]
+        # Create mark
+        c = admin_session.post(f"{API}/projects/{temp_project}/marks", json={
+            "drawing_id": drawing_id, "position_x": 5, "position_y": 6, "label": "L"
+        })
+        mid = c.json()["id"]
+        # PATCH boq_row_id
+        p = admin_session.patch(f"{API}/projects/{temp_project}/marks/{mid}",
+                                json={"boq_row_id": row_id})
+        assert p.status_code == 200
+        assert p.json()["boq_row_id"] == row_id
+
+    def test_patch_mark_both_fields(self, admin_session, temp_project):
+        dr = self._create_drawing(admin_session, temp_project)
+        if dr.status_code != 200:
+            pytest.skip("Drawing upload failed")
+        drawing_id = dr.json()["id"]
+        c = admin_session.post(f"{API}/projects/{temp_project}/marks", json={
+            "drawing_id": drawing_id, "position_x": 1, "position_y": 2, "label": "Orig"
+        })
+        mid = c.json()["id"]
+        p = admin_session.patch(f"{API}/projects/{temp_project}/marks/{mid}",
+                                json={"label": "BothUpd", "boq_row_id": "some-row-id"})
+        assert p.status_code == 200
+        d = p.json()
+        assert d["label"] == "BothUpd"
+        assert d["boq_row_id"] == "some-row-id"
+
+    def test_patch_mark_empty_body_returns_existing(self, admin_session, temp_project):
+        dr = self._create_drawing(admin_session, temp_project)
+        if dr.status_code != 200:
+            pytest.skip("Drawing upload failed")
+        drawing_id = dr.json()["id"]
+        c = admin_session.post(f"{API}/projects/{temp_project}/marks", json={
+            "drawing_id": drawing_id, "position_x": 1, "position_y": 2, "label": "Keep"
+        })
+        mid = c.json()["id"]
+        p = admin_session.patch(f"{API}/projects/{temp_project}/marks/{mid}", json={})
+        assert p.status_code == 200
+        assert p.json()["label"] == "Keep"
+
+    def test_patch_nonexistent_mark_returns_404(self, admin_session, temp_project):
+        from bson import ObjectId as _O
+        fake = str(_O())
+        r = admin_session.patch(f"{API}/projects/{temp_project}/marks/{fake}",
+                                json={"label": "x"})
+        assert r.status_code == 404
+
+    def test_delete_mark(self, admin_session, temp_project):
+        dr = self._create_drawing(admin_session, temp_project)
+        if dr.status_code != 200:
+            pytest.skip("Drawing upload failed")
+        drawing_id = dr.json()["id"]
+        c = admin_session.post(f"{API}/projects/{temp_project}/marks", json={
+            "drawing_id": drawing_id, "position_x": 7, "position_y": 8
+        })
+        mid = c.json()["id"]
+        d = admin_session.delete(f"{API}/projects/{temp_project}/marks/{mid}")
+        assert d.status_code == 200
+        lst = admin_session.get(f"{API}/projects/{temp_project}/marks").json()
+        assert not any(x["id"] == mid for x in lst)
+
+    def test_boq_create_persists_measurement_meta(self, admin_session, temp_project):
+        meta = {"L": {"value": 5.25, "source": "drawing", "drawing_id": "abc", "mark_id": "m1"}}
+        r = admin_session.post(f"{API}/projects/{temp_project}/boq-rows", json={
+            "item_no": "MM1", "description": "Has meta", "nos": 1, "length": 5.25,
+            "measurement_meta": meta
+        })
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "measurement_meta" in data
+        assert data["measurement_meta"].get("L", {}).get("value") == 5.25
+
+    def test_boq_list_returns_measurement_meta(self, admin_session, temp_project):
+        meta = {"B": {"value": 3.0, "source": "drawing"}}
+        admin_session.post(f"{API}/projects/{temp_project}/boq-rows", json={
+            "item_no": "MM2", "description": "Listed", "nos": 1, "breadth": 3.0,
+            "measurement_meta": meta
+        })
+        rows = admin_session.get(f"{API}/projects/{temp_project}/boq-rows").json()
+        match = [r for r in rows if r["item_no"] == "MM2"][0]
+        assert match["measurement_meta"].get("B", {}).get("value") == 3.0
+
+    def test_boq_update_persists_measurement_meta(self, admin_session, temp_project):
+        r = admin_session.post(f"{API}/projects/{temp_project}/boq-rows", json={
+            "item_no": "MM3", "description": "Update meta", "nos": 1, "length": 2.0
+        })
+        rid = r.json()["id"]
+        # Initially empty
+        assert r.json().get("measurement_meta", {}) == {}
+        # PUT with meta
+        meta = {"L": {"value": 7.5, "source": "drawing", "mark_id": "xyz"}}
+        u = admin_session.put(f"{API}/projects/{temp_project}/boq-rows/{rid}", json={
+            "item_no": "MM3", "description": "Update meta", "nos": 1, "length": 7.5,
+            "measurement_meta": meta
+        })
+        assert u.status_code == 200
+        assert u.json()["measurement_meta"].get("L", {}).get("value") == 7.5
+        # Verify GET persistence
+        rows = admin_session.get(f"{API}/projects/{temp_project}/boq-rows").json()
+        match = [r for r in rows if r["id"] == rid][0]
+        assert match["measurement_meta"].get("L", {}).get("value") == 7.5
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

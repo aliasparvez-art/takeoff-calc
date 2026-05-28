@@ -28,6 +28,7 @@ const ProjectView = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('boq');
   const [showHeaderPanel, setShowHeaderPanel] = useState(true);
+  const [pendingOpenMark, setPendingOpenMark] = useState(null);
 
   const fetchProjectData = useCallback(async () => {
     try {
@@ -306,6 +307,8 @@ const ProjectView = () => {
             drawings={drawings}
             marks={marks}
             onMarksUpdate={fetchProjectData}
+            pendingOpenMark={pendingOpenMark}
+            onPendingOpenMarkConsumed={() => setPendingOpenMark(null)}
           />
         )}
         {activeTab === 'drawings' && (
@@ -324,10 +327,15 @@ const ProjectView = () => {
         )}
         {activeTab === 'refs' && (
           <ReferencesPanel
+            projectId={projectId}
             marks={marks}
             drawings={drawings}
             boqRows={boqRows}
-            onOpenMark={() => setActiveTab('boq')}
+            onMarksUpdate={fetchProjectData}
+            onOpenMark={(mark) => {
+              setPendingOpenMark(mark);
+              setActiveTab('boq');
+            }}
           />
         )}
       </div>

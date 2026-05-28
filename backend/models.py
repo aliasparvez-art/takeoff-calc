@@ -55,6 +55,7 @@ class BOQRowCreate(BaseModel):
     depth: Optional[float] = 0.0
     unit: Optional[str] = "m"
     is_deduction: Optional[bool] = False
+    measurement_meta: Optional[dict] = {}
 
 class BOQRowResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -75,6 +76,7 @@ class BOQRowResponse(BaseModel):
     is_deduction: bool
     order: int
     created_at: str
+    measurement_meta: dict = {}
 
 class DrawingCreate(BaseModel):
     filename: str
@@ -124,6 +126,11 @@ class MarkCreate(BaseModel):
     position_y: float
     boq_row_id: Optional[str] = ""
     label: Optional[str] = ""
+
+
+class MarkUpdate(BaseModel):
+    label: Optional[str] = None
+    boq_row_id: Optional[str] = None
 
 
 class MarkResponse(BaseModel):
