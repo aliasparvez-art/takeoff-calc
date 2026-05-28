@@ -93,8 +93,38 @@ Build a full-featured, production-grade Quantity Take-Off (QTO) web application 
 - Performance optimization for large BOQ datasets (10,000+ rows)
 - Add e2e tests for drawing measurement canvas interactions
 
+## Recent Updates (28 May 2026 — Session 3)
+### Backend
+- ✅ NEW `PATCH /api/projects/{project_id}/marks/{mark_id}` — update mark label and/or boq_row_id
+- ✅ `BOQRowCreate` / `BOQRowResponse` now include `measurement_meta: dict` so the "measured from X" tooltips persist across page reloads
+- ✅ GET/PUT/POST boq-rows endpoints now read/write `measurement_meta`
+
+### Frontend — References tab UX overhaul
+- ✅ Inline label editing (pencil icon → input → check/cancel)
+- ✅ Delete mark (trash icon with confirm)
+- ✅ "Open" arrow now opens the DrawingMeasurement modal focused on that mark (was previously a no-op tab switch)
+- ✅ "Print Index" button with print-friendly CSS (white background, black borders, hides actions)
+
+### Frontend — BOQ Table
+- ✅ Ref badges in remarks now fall back to global marks lookup (fixes orphan-mark badges silently failing)
+- ✅ Orphan badges (mark deleted) render red strikethrough + disabled with tooltip "Reference mark no longer exists"
+
+### Frontend — DrawingMeasurement refactor
+- ✅ Split 684-line `DrawingMeasurement.js` into 5 focused subcomponents under `/components/measurement/`:
+  - `MarkPopover.js` — popover with Label/BOQ Row Link/Save controls
+  - `ScaleControls.js` — calibration UI
+  - `ToolPalette.js` — Linear / Curved / Rectangle / Polygon / Circle / Ref Mark buttons
+  - `MeasurementsList.js` — captured measurements list
+  - `SendToBOQPanel.js` — send-to-row action buttons (Linear→L/B, Polyline, Rectangle, Polygon, Circle Linear/Area, Area→L)
+
+### Testing
+- ✅ Backend: 33/33 tests pass (10 new tests for PATCH marks + measurement_meta)
+- ✅ Frontend: all 6 References tab flows verified, badge orphan handling verified
+- Note: Originally reported P0 "Label cannot be written or saved" was NOT REPRODUCIBLE — input works correctly. Actual UX gap was lack of edit/delete UI for existing marks, now addressed.
+
 ## Test Credentials
 - Admin: `admin@qto.com` / `admin123` (auto-seeded with sample project)
+- User: `alias.parvez@gmail.com` / `Km@249535678` (has "Civil Arc" project with 12 marks)
 
 ## Routes
 - `/login` - Login page
@@ -105,6 +135,7 @@ Build a full-featured, production-grade Quantity Take-Off (QTO) web application 
 ## API Endpoints (all under /api)
 - POST /auth/register, /auth/login, /auth/logout, GET /auth/me
 - GET/POST /projects, GET/PUT/DELETE /projects/{id}
-- GET/POST /projects/{id}/boq-rows, PUT/DELETE /projects/{id}/boq-rows/{row_id}
+- GET/POST /projects/{id}/boq-rows, PUT/DELETE /projects/{id}/boq-rows/{row_id}  (now includes `measurement_meta`)
 - GET/POST /projects/{id}/drawings, GET /drawings/{id}/download, PUT /drawings/{id}/scale
 - GET/POST /projects/{id}/rate-analysis
+- GET/POST /projects/{id}/marks, PATCH/DELETE /projects/{id}/marks/{mark_id}

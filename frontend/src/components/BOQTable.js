@@ -126,6 +126,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings, marks = [], onMarksUpd
                 key={row.id}
                 row={row}
                 rowMarks={marksByRow[row.id] || []}
+                allMarks={marks}
                 drawings={drawings}
                 onUpdate={(data) => handleUpdateRow(row.id, data)}
                 onDelete={() => handleDeleteRow(row.id)}
@@ -226,7 +227,7 @@ const FieldWithMeasure = ({ value, onChange, onBlur, onMeasure, testid, measured
   </div>
 );
 
-const BOQRow = ({ row, rowMarks, drawings, onUpdate, onDelete, onDuplicate, onMeasureField, onOpenRef }) => {
+const BOQRow = ({ row, rowMarks, allMarks = [], drawings, onUpdate, onDelete, onDuplicate, onMeasureField, onOpenRef }) => {
   const [formData, setFormData] = useState(row);
   const meta = row.measurement_meta || {};
 
@@ -253,12 +254,20 @@ const BOQRow = ({ row, rowMarks, drawings, onUpdate, onDelete, onDuplicate, onMe
         {parts.map((p, i) => {
           const m = p.match(/^\[(REF-\d{3})/);
           if (m) {
-            const mark = rowMarks.find((x) => x.ref_id === m[1]);
+            const mark = rowMarks.find((x) => x.ref_id === m[1]) || allMarks.find((x) => x.ref_id === m[1]);
+            const isOrphan = !mark;
             return (
               <button
                 key={i}
-                onClick={() => mark && onOpenRef(mark)}
-                className="text-xs font-mono bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded hover:bg-cyan-500/30 transition-qto"
+                type="button"
+                disabled={isOrphan}
+                title={isOrphan ? 'Reference mark no longer exists (deleted)' : 'Open on drawing'}
+                onClick={(e) => { e.stopPropagation(); if (mark) onOpenRef(mark); }}
+                className={`text-xs font-mono px-1.5 py-0.5 rounded transition-qto ${
+                  isOrphan
+                    ? 'bg-red-500/15 text-red-300 line-through cursor-not-allowed'
+                    : 'bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 cursor-pointer'
+                }`}
                 data-testid={`ref-badge-${m[1]}`}
               >
                 {p}
