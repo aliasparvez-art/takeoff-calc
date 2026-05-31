@@ -10,6 +10,7 @@ import {
 
 import ProjectHeader from '../components/ProjectHeader';
 import BOQTable from '../components/BOQTable';
+import BOQItemsTable from '../components/BOQItemsTable';
 import DrawingManager from '../components/DrawingManager';
 import RateAnalysis from '../components/RateAnalysis';
 import ReferencesPanel from '../components/ReferencesPanel';
@@ -23,24 +24,27 @@ const ProjectView = () => {
   
   const [project, setProject] = useState(null);
   const [boqRows, setBoqRows] = useState([]);
+  const [boqItems, setBoqItems] = useState([]);
   const [drawings, setDrawings] = useState([]);
   const [marks, setMarks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('boq');
+  const [activeTab, setActiveTab] = useState('takeoff');
   const [showHeaderPanel, setShowHeaderPanel] = useState(true);
   const [pendingOpenMark, setPendingOpenMark] = useState(null);
 
   const fetchProjectData = useCallback(async () => {
     try {
-      const [projectRes, boqRes, drawingsRes, marksRes] = await Promise.all([
+      const [projectRes, boqRes, boqItemsRes, drawingsRes, marksRes] = await Promise.all([
         api.get(`/projects/${projectId}`),
         api.get(`/projects/${projectId}/boq-rows`),
+        api.get(`/projects/${projectId}/boq-items`),
         api.get(`/projects/${projectId}/drawings`),
         api.get(`/projects/${projectId}/marks`),
       ]);
       
       setProject(projectRes.data);
       setBoqRows(boqRes.data);
+      setBoqItems(boqItemsRes.data);
       setDrawings(drawingsRes.data);
       setMarks(marksRes.data);
     } catch (error) {
@@ -248,8 +252,22 @@ const ProjectView = () => {
             data-testid="boq-tab"
           >
             <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4" />
+              BOQ ({boqItems.length})
+            </div>
+          </button>
+          <button
+            onClick={() => setActiveTab('takeoff')}
+            className={`px-4 py-3 text-sm font-heading font-semibold transition-qto border-b-2 ${
+              activeTab === 'takeoff'
+                ? 'border-qto-primary text-qto-primary'
+                : 'border-transparent text-qto-text-secondary hover:text-qto-text-primary'
+            }`}
+            data-testid="takeoff-tab"
+          >
+            <div className="flex items-center gap-2">
               <Calculator className="w-4 h-4" />
-              BOQ Take-Off
+              Take-Off ({boqRows.length})
             </div>
           </button>
           <button
@@ -262,7 +280,7 @@ const ProjectView = () => {
             data-testid="drawings-tab"
           >
             <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4" />
+              <Upload className="w-4 h-4" />
               Drawings ({drawings.length})
             </div>
           </button>
@@ -300,9 +318,17 @@ const ProjectView = () => {
       {/* Tab Content */}
       <div className="p-4">
         {activeTab === 'boq' && (
+          <BOQItemsTable
+            projectId={projectId}
+            items={boqItems}
+            onRefresh={fetchProjectData}
+          />
+        )}
+        {activeTab === 'takeoff' && (
           <BOQTable
             projectId={projectId}
             rows={boqRows}
+            boqItems={boqItems}
             onRefresh={fetchProjectData}
             drawings={drawings}
             marks={marks}
@@ -335,7 +361,7 @@ const ProjectView = () => {
             onMarksUpdate={fetchProjectData}
             onOpenMark={(mark) => {
               setPendingOpenMark(mark);
-              setActiveTab('boq');
+              setActiveTab('takeoff');
             }}
           />
         )}

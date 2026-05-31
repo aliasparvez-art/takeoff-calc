@@ -145,3 +145,27 @@ class MarkResponse(BaseModel):
     boq_row_id: str
     label: str
     created_at: str
+
+
+# ─── Bill of Quantities (formal pricing table) ───────────────────────────────
+
+class BOQItemCreate(BaseModel):
+    item_no: str
+    description: str
+    unit: Optional[str] = "m"
+    quantity: Optional[float] = 0.0
+    rate: Optional[float] = 0.0
+
+
+class BOQItemResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    project_id: str
+    item_no: str
+    description: str
+    unit: str
+    quantity: float
+    rate: float
+    amount: float
+    order: int
+    created_at: str

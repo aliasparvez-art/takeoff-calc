@@ -23,6 +23,7 @@ from models import (
     UserCreate, UserLogin, UserResponse,
     ProjectCreate, ProjectResponse,
     BOQRowCreate, BOQRowResponse,
+    BOQItemCreate, BOQItemResponse,
     DrawingCreate, DrawingResponse,
     RateAnalysisCreate, RateAnalysisResponse,
     MarkCreate, MarkResponse, MarkUpdate
@@ -320,6 +321,7 @@ async def delete_project(project_id: str, request: Request):
     
     # Delete associated BOQ rows and drawings
     await db.boq_rows.delete_many({"project_id": project_id})
+    await db.boq_items.delete_many({"project_id": project_id})
     await db.drawings.delete_many({"project_id": project_id})
     await db.rate_analysis.delete_many({"project_id": project_id})
     
@@ -798,6 +800,238 @@ async def seed_sample_project(owner_id: str):
         await db.boq_rows.insert_many(row_docs)
 
     logger.info(f"Sample project seeded: {project_id}")
+
+# ====== BOQ Items (formal pricing table) ======
+
+def _serialize_boq_item(doc: dict) -> BOQItemResponse:
+    return BOQItemResponse(
+        id=str(doc["_id"]),
+        project_id=doc["project_id"],
+        item_no=doc.get("item_no", ""),
+        description=doc.get("description", ""),
+        unit=doc.get("unit", "m"),
+        quantity=doc.get("quantity", 0.0),
+        rate=doc.get("rate", 0.0),
+        amount=round(doc.get("quantity", 0.0) * doc.get("rate", 0.0), 2),
+        order=doc.get("order", 0),
+        created_at=doc["created_at"].isoformat() if isinstance(doc.get("created_at"), datetime) else str(doc.get("created_at", "")),
+    )
+
+
+@api_router.get("/projects/{project_id}/boq-items", response_model=list[BOQItemResponse])
+async def list_boq_items(project_id: str, request: Request):
+    await _verify_project_access(project_id, request)
+    items = await db.boq_items.find({"project_id": project_id}).sort("order", 1).to_list(10000)
+    return [_serialize_boq_item(i) for i in items]
+
+
+@api_router.post("/projects/{project_id}/boq-items", response_model=BOQItemResponse)
+async def create_boq_item(project_id: str, item_input: BOQItemCreate, request: Request):
+    await _verify_project_access(project_id, request)
+    last = await db.boq_items.find_one({"project_id": project_id}, sort=[("order", -1)])
+    order = (last["order"] + 1) if last else 0
+    doc = {
+        "_id": ObjectId(),
+        "project_id": project_id,
+        "item_no": item_input.item_no,
+        "description": item_input.description,
+        "unit": item_input.unit or "m",
+        "quantity": item_input.quantity or 0.0,
+        "rate": item_input.rate or 0.0,
+        "order": order,
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.boq_items.insert_one(doc)
+    return _serialize_boq_item(doc)
+
+
+@api_router.put("/projects/{project_id}/boq-items/{item_id}", response_model=BOQItemResponse)
+async def update_boq_item(project_id: str, item_id: str, item_input: BOQItemCreate, request: Request):
+    await _verify_project_access(project_id, request)
+    await db.boq_items.update_one(
+        {"_id": ObjectId(item_id), "project_id": project_id},
+        {"$set": {
+            "item_no": item_input.item_no,
+            "description": item_input.description,
+            "unit": item_input.unit or "m",
+            "quantity": item_input.quantity or 0.0,
+            "rate": item_input.rate or 0.0,
+        }}
+    )
+    updated = await db.boq_items.find_one({"_id": ObjectId(item_id)})
+    if not updated:
+        raise HTTPException(status_code=404, detail="BOQ item not found")
+    return _serialize_boq_item(updated)
+
+
+@api_router.delete("/projects/{project_id}/boq-items/{item_id}")
+async def delete_boq_item(project_id: str, item_id: str, request: Request):
+    await _verify_project_access(project_id, request)
+    result = await db.boq_items.delete_one({"_id": ObjectId(item_id), "project_id": project_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="BOQ item not found")
+    return {"message": "BOQ item deleted"}
+
+
+@api_router.post("/projects/{project_id}/boq-items/upload")
+async def upload_boq_file(project_id: str, file: UploadFile = File(...), request: Request = None):
+    """Parse .xlsx or .pdf BOQ file and bulk-insert items."""
+    import io
+    await _verify_project_access(project_id, request)
+
+    data = await file.read()
+    fname = (file.filename or "").lower()
+    parsed: list[dict] = []
+
+    if fname.endswith(".xlsx") or fname.endswith(".xls"):
+        parsed = _parse_excel_boq(data)
+    elif fname.endswith(".pdf"):
+        parsed = _parse_pdf_boq(data)
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported file type. Upload .xlsx or .pdf")
+
+    if not parsed:
+        raise HTTPException(status_code=422, detail="No BOQ rows could be extracted from the file. Check the format.")
+
+    last = await db.boq_items.find_one({"project_id": project_id}, sort=[("order", -1)])
+    start_order = (last["order"] + 1) if last else 0
+
+    docs = []
+    for i, item in enumerate(parsed):
+        docs.append({
+            "_id": ObjectId(),
+            "project_id": project_id,
+            "item_no": item.get("item_no", ""),
+            "description": item.get("description", ""),
+            "unit": item.get("unit", "m"),
+            "quantity": item.get("quantity", 0.0),
+            "rate": item.get("rate", 0.0),
+            "order": start_order + i,
+            "created_at": datetime.now(timezone.utc),
+        })
+
+    if docs:
+        await db.boq_items.insert_many(docs)
+
+    return {"inserted": len(docs), "message": f"{len(docs)} BOQ items imported successfully"}
+
+
+def _parse_excel_boq(data: bytes) -> list[dict]:
+    import io
+    try:
+        import openpyxl
+    except ImportError:
+        return []
+    import io as _io
+
+    wb = openpyxl.load_workbook(_io.BytesIO(data), data_only=True)
+    ws = wb.active
+    items = []
+    col_map: dict[str, int] = {}
+    header_found = False
+
+    for row in ws.iter_rows(values_only=True):
+        if not any(c for c in row if c is not None):
+            continue
+
+        row_str = [str(c).lower().strip() if c is not None else "" for c in row]
+
+        if not header_found:
+            # Detect header row by looking for keyword columns
+            has_item = any("item" in c for c in row_str)
+            has_desc = any("desc" in c for c in row_str)
+            if has_item or has_desc:
+                header_found = True
+                for i, h in enumerate(row_str):
+                    if "item" in h and "item_no" not in col_map:
+                        col_map["item_no"] = i
+                    elif "desc" in h and "description" not in col_map:
+                        col_map["description"] = i
+                    elif h == "unit" or h == "uom":
+                        col_map["unit"] = i
+                    elif ("qty" in h or "quant" in h) and "quantity" not in col_map:
+                        col_map["quantity"] = i
+                    elif "rate" in h and "rate" not in col_map:
+                        col_map["rate"] = i
+            continue
+
+        item_no = str(row[col_map.get("item_no", 0)] or "").strip()
+        description = str(row[col_map.get("description", 1)] or "").strip()
+        if not item_no and not description:
+            continue
+
+        try:
+            qty = float(row[col_map.get("quantity", 3)] or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        try:
+            rate = float(row[col_map.get("rate", 4)] or 0)
+        except (TypeError, ValueError):
+            rate = 0.0
+
+        unit = str(row[col_map.get("unit", 2)] or "m").strip() or "m"
+        items.append({"item_no": item_no, "description": description, "unit": unit, "quantity": qty, "rate": rate})
+
+    return items
+
+
+def _parse_pdf_boq(data: bytes) -> list[dict]:
+    try:
+        import pdfplumber
+    except ImportError:
+        return []
+    import io as _io
+
+    items = []
+    col_map: dict[str, int] = {}
+    header_found = False
+
+    with pdfplumber.open(_io.BytesIO(data)) as pdf:
+        for page in pdf.pages:
+            tables = page.extract_tables()
+            for table in tables:
+                for row in table:
+                    if not row or not any(c for c in row if c):
+                        continue
+                    row_str = [str(c).lower().strip() if c else "" for c in row]
+
+                    if not header_found:
+                        has_item = any("item" in c for c in row_str)
+                        has_desc = any("desc" in c for c in row_str)
+                        if has_item or has_desc:
+                            header_found = True
+                            for i, h in enumerate(row_str):
+                                if "item" in h and "item_no" not in col_map:
+                                    col_map["item_no"] = i
+                                elif "desc" in h and "description" not in col_map:
+                                    col_map["description"] = i
+                                elif h in ("unit", "uom") and "unit" not in col_map:
+                                    col_map["unit"] = i
+                                elif ("qty" in h or "quant" in h) and "quantity" not in col_map:
+                                    col_map["quantity"] = i
+                                elif "rate" in h and "rate" not in col_map:
+                                    col_map["rate"] = i
+                        continue
+
+                    item_no = str(row[col_map.get("item_no", 0)] or "").strip()
+                    description = str(row[col_map.get("description", 1)] or "").strip()
+                    if not item_no and not description:
+                        continue
+
+                    try:
+                        qty = float(str(row[col_map.get("quantity", 3)] or "").replace(",", "") or 0)
+                    except (TypeError, ValueError):
+                        qty = 0.0
+                    try:
+                        rate = float(str(row[col_map.get("rate", 4)] or "").replace(",", "") or 0)
+                    except (TypeError, ValueError):
+                        rate = 0.0
+
+                    unit = str(row[col_map.get("unit", 2)] or "m").strip() or "m"
+                    items.append({"item_no": item_no, "description": description, "unit": unit, "quantity": qty, "rate": rate})
+
+    return items
+
 
 @app.on_event("startup")
 async def startup():

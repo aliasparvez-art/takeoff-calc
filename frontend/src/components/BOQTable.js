@@ -19,7 +19,7 @@ const computeQty = (row) => {
 
 const formatQty = (qty) => (qty == null ? '—' : qty.toFixed(3));
 
-const BOQTable = ({ projectId, rows, onRefresh, drawings, marks = [], onMarksUpdate, pendingOpenMark, onPendingOpenMarkConsumed }) => {
+const BOQTable = ({ projectId, rows, onRefresh, drawings, marks = [], onMarksUpdate, pendingOpenMark, onPendingOpenMarkConsumed, boqItems = [] }) => {
   const [showMeasurement, setShowMeasurement] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -87,14 +87,86 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings, marks = [], onMarksUpd
     marksByRow[m.boq_row_id].push(m);
   });
 
+  // Group take-off rows by item_no for linked BOQ header display
+  // Build ordered groups preserving first-seen item_no order
+  const groupOrder = [];
+  const groupedRows = {};
+  rows.forEach((r) => {
+    const key = r.item_no || '__none__';
+    if (!groupedRows[key]) { groupedRows[key] = []; groupOrder.push(key); }
+    groupedRows[key].push(r);
+  });
+
+  const fmtAmt = (n) => n == null || isNaN(n) ? '—' : Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const renderTableBody = () => {
+    if (rows.length === 0) {
+      return <tr><td colSpan="14" className="text-center py-8 text-qto-text-secondary">No Take-Off rows yet. Click "Add Row" to start.</td></tr>;
+    }
+    const nodes = [];
+    groupOrder.forEach((key) => {
+      const groupRows = groupedRows[key];
+      const boqItem = boqItems.find((b) => b.item_no === key && key !== '__none__');
+
+      // BOQ Item header row
+      nodes.push(
+        <tr key={`header-${key}`} className="bg-slate-700/70 border-t-2 border-qto-primary/40" data-testid={`takeoff-group-${key}`}>
+          <td colSpan={14} className="py-2 px-3">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-mono font-bold text-qto-primary">
+                  {key === '__none__' ? '(No Item No.)' : key}
+                </span>
+                {boqItem ? (
+                  <>
+                    <span className="text-xs text-qto-text-primary font-semibold">{boqItem.description}</span>
+                    <span className="text-[10px] font-mono bg-qto-primary/15 text-qto-primary px-1.5 py-0.5 rounded">{boqItem.unit}</span>
+                  </>
+                ) : key !== '__none__' ? (
+                  <span className="text-[10px] text-amber-400/70 italic">No matching BOQ item — add one in the BOQ tab</span>
+                ) : null}
+              </div>
+              {boqItem && (
+                <div className="flex items-center gap-4 text-[11px] font-mono">
+                  <span className="text-qto-text-secondary">BOQ Qty: <span className="text-qto-text-primary font-bold">{boqItem.quantity} {boqItem.unit}</span></span>
+                  <span className="text-qto-text-secondary">Rate: <span className="text-qto-text-primary font-bold">Rs {fmtAmt(boqItem.rate)}</span></span>
+                  <span className="text-qto-text-secondary">Amount: <span className="text-qto-primary font-bold">Rs {fmtAmt(boqItem.amount)}</span></span>
+                </div>
+              )}
+            </div>
+          </td>
+        </tr>
+      );
+
+      // Take-off rows for this group
+      groupRows.forEach((row) => {
+        nodes.push(
+          <BOQRow
+            key={row.id}
+            row={row}
+            rowMarks={marksByRow[row.id] || []}
+            allMarks={marks}
+            drawings={drawings}
+            onUpdate={(data) => handleUpdateRow(row.id, data)}
+            onDelete={() => handleDeleteRow(row.id)}
+            onDuplicate={() => handleDuplicateRow(row)}
+            onMeasureField={(field) => setShowMeasurement({ rowId: row.id, field })}
+            onOpenRef={(mark) => setShowMeasurement({ rowId: row.id, focusMarkId: mark.id, drawingId: mark.drawing_id })}
+          />
+        );
+      });
+    });
+    return nodes;
+  };
+
   return (
     <div className="qto-panel p-4" data-testid="boq-table-container">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-heading font-semibold text-qto-text-primary">
-          Bill of Quantities Take-Off Sheet
+          Take-Off Sheet
         </h3>
         <button onClick={handleAddRow} disabled={loading} className="qto-btn flex items-center gap-2" data-testid="add-boq-row-button">
-          <Plus className="w-4 h-4" /> Add Row
+          <Plus className="w-4 h-4" /> Add Take-Off Row
         </button>
       </div>
 
@@ -119,22 +191,7 @@ const BOQTable = ({ projectId, rows, onRefresh, drawings, marks = [], onMarksUpd
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 ? (
-              <tr><td colSpan="14" className="text-center py-8 text-qto-text-secondary">No BOQ rows yet. Click "Add Row" to start.</td></tr>
-            ) : rows.map((row) => (
-              <BOQRow
-                key={row.id}
-                row={row}
-                rowMarks={marksByRow[row.id] || []}
-                allMarks={marks}
-                drawings={drawings}
-                onUpdate={(data) => handleUpdateRow(row.id, data)}
-                onDelete={() => handleDeleteRow(row.id)}
-                onDuplicate={() => handleDuplicateRow(row)}
-                onMeasureField={(field) => setShowMeasurement({ rowId: row.id, field })}
-                onOpenRef={(mark) => setShowMeasurement({ rowId: row.id, focusMarkId: mark.id, drawingId: mark.drawing_id })}
-              />
-            ))}
+            {renderTableBody()}
           </tbody>
           {rows.length > 0 && (
             <tfoot>

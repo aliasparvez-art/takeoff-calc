@@ -507,7 +507,11 @@ const DrawingMeasurement = ({
                   onFinishPolygon={finishPolygon}
                   onFinishPolyline={finishPolyline}
                 />
-                <MeasurementsList measurements={measurements} />
+                <MeasurementsList
+                  measurements={measurements}
+                  onUpdate={(id, overrides) => setMeasurements((prev) => prev.map((m) => m.id === id ? { ...m, ...overrides } : m))}
+                  onDelete={(id) => setMeasurements((prev) => prev.filter((m) => m.id !== id))}
+                />
                 <SendToBOQPanel
                   row={row}
                   measurements={measurements}
