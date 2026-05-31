@@ -113,7 +113,9 @@ const ReferencesPanel = ({ projectId, projectName, marks, drawings, boqRows, onO
                 <tr className="bg-slate-800/60 border-t-2 border-amber-500/30" data-testid={`ref-group-${group.rowId}`}>
                   <td colSpan={6} className="py-2 px-3">
                     <span className="text-xs font-mono font-bold text-qto-primary">
-                      {group.item_no || '(No BOQ Item)'}
+                      {group.rowId === '__none__'
+                        ? '(Unlinked Marks)'
+                        : (group.item_no || '(Row: No Item No.)')}
                     </span>
                     {group.description && (
                       <span className="text-xs text-qto-text-secondary ml-3">{group.description}</span>

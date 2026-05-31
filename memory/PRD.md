@@ -93,7 +93,20 @@ Build a full-featured, production-grade Quantity Take-Off (QTO) web application 
 - Performance optimization for large BOQ datasets (10,000+ rows)
 - Add e2e tests for drawing measurement canvas interactions
 
-## Recent Updates (28 May 2026 — Session 4: Multi-page + Inline Edit + Full Report)
+## Recent Updates (31 May 2026 — Session 5: Grouped References + Pan/Zoom Persistence)
+
+### Frontend — References Index grouped by BOQ Item No.
+- ✅ On-screen References panel now shows amber section-header rows grouping marks by BOQ Item No.
+- ✅ Groups ordered by BOQ row sequence; "Unlinked Marks" group for marks without a row; "Row: No Item No." for linked rows with empty item_no
+- ✅ PDF export (pdfReport.js) also groups by BOQ Item No. using jsPDF autoTable colSpan header rows
+- ✅ PDF subtitle line: "Grouped by BOQ Item No. · N marks across N item(s)"
+
+### Frontend — Pan/Zoom view state persistence
+- ✅ Zoom & pan saved to localStorage keyed `qto_view_{drawing.id}` with 400ms debounce
+- ✅ Restored on drawing modal reopen; fresh drawings default to zoom=1.0 / pan={x:0,y:0}
+- ✅ Race condition fixed: restore happens at start of loadDrawing before async fetch
+
+
 
 ### Frontend — Multi-page PDF support
 - ✅ `pdfPagesRef` array holds one off-screen canvas per page
