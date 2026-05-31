@@ -64,6 +64,21 @@ const ReferencesPanel = ({ projectId, projectName, marks, drawings, boqRows, onO
     );
   }
 
+  // Build groups ordered by boqRows array order
+  const groupMap = new Map();
+  boqRows.forEach((r) => {
+    const key = r.id;
+    if (!groupMap.has(key)) groupMap.set(key, { item_no: r.item_no || '', description: r.description || '', rowId: r.id, marks: [] });
+  });
+  marks.forEach((m) => {
+    const row = boqRows.find((r) => r.id === m.boq_row_id);
+    const key = row?.id || '__none__';
+    if (!groupMap.has(key)) groupMap.set(key, { item_no: row?.item_no || '', description: row?.description || '', rowId: key, marks: [] });
+    groupMap.get(key).marks.push(m);
+  });
+  // Filter groups with marks only and sort: BOQ-linked first (by order), then unlinked
+  const groups = [...groupMap.values()].filter((g) => g.marks.length > 0);
+
   return (
     <div className="qto-panel p-4 qto-references-print" data-testid="references-panel">
       <div className="flex justify-between items-center mb-4">
@@ -92,63 +107,82 @@ const ReferencesPanel = ({ projectId, projectName, marks, drawings, boqRows, onO
             </tr>
           </thead>
           <tbody>
-            {marks.map((mark) => {
-              const drawing = drawings.find((d) => d.id === mark.drawing_id);
-              const row = boqRows.find((r) => r.id === mark.boq_row_id);
-              const isEditing = editingId === mark.id;
-              return (
-                <tr key={mark.id} data-testid={`ref-row-${mark.ref_id}`}>
-                  <td className="font-mono text-qto-primary font-bold">{mark.ref_id}</td>
-                  <td className="font-mono text-xs">{drawing?.filename || '—'} pg.{mark.page}</td>
-                  <td className="font-mono">{row?.item_no || '—'}</td>
-                  <td>{row?.description || '—'}</td>
-                  <td className="text-xs">
-                    {isEditing ? (
-                      <input
-                        type="text"
-                        value={draftLabel}
-                        autoFocus
-                        onChange={(e) => setDraftLabel(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') saveEdit(mark);
-                          if (e.key === 'Escape') cancelEdit();
-                        }}
-                        className="qto-input w-full text-xs"
-                        data-testid={`label-input-${mark.ref_id}`}
-                      />
-                    ) : (
-                      <span data-testid={`label-text-${mark.ref_id}`}>{mark.label || '—'}</span>
+            {groups.map((group) => (
+              <React.Fragment key={group.rowId}>
+                {/* Group header row */}
+                <tr className="bg-slate-800/60 border-t-2 border-amber-500/30" data-testid={`ref-group-${group.rowId}`}>
+                  <td colSpan={6} className="py-2 px-3">
+                    <span className="text-xs font-mono font-bold text-qto-primary">
+                      {group.item_no || '(No BOQ Item)'}
+                    </span>
+                    {group.description && (
+                      <span className="text-xs text-qto-text-secondary ml-3">{group.description}</span>
                     )}
-                  </td>
-                  <td className="no-print">
-                    <div className="flex items-center gap-1">
-                      {isEditing ? (
-                        <>
-                          <button onClick={() => saveEdit(mark)} className="p-1 hover:bg-qto-surface-hover rounded transition-qto" title="Save" data-testid={`save-label-${mark.ref_id}`}>
-                            <Check className="w-4 h-4 text-qto-primary" />
-                          </button>
-                          <button onClick={cancelEdit} className="p-1 hover:bg-qto-surface-hover rounded transition-qto" title="Cancel" data-testid={`cancel-label-${mark.ref_id}`}>
-                            <X className="w-4 h-4 text-qto-text-secondary" />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={() => startEdit(mark)} className="p-1 hover:bg-qto-surface-hover rounded transition-qto" title="Edit label" data-testid={`edit-label-${mark.ref_id}`}>
-                            <Pencil className="w-4 h-4 text-qto-text-secondary" />
-                          </button>
-                          <button onClick={() => onOpenMark(mark)} className="p-1 hover:bg-qto-surface-hover rounded transition-qto" title="Open on drawing" data-testid={`open-ref-${mark.ref_id}`}>
-                            <ExternalLink className="w-4 h-4 text-qto-primary" />
-                          </button>
-                          <button onClick={() => handleDelete(mark)} className="p-1 hover:bg-qto-surface-hover rounded transition-qto" title="Delete mark" data-testid={`delete-ref-${mark.ref_id}`}>
-                            <Trash2 className="w-4 h-4 text-red-400" />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    <span className="text-xs text-qto-text-secondary ml-2 opacity-60">
+                      · {group.marks.length} mark{group.marks.length !== 1 ? 's' : ''}
+                    </span>
                   </td>
                 </tr>
-              );
-            })}
+                {/* Mark rows */}
+                {group.marks.map((mark) => {
+                  const drawing = drawings.find((d) => d.id === mark.drawing_id);
+                  const row = boqRows.find((r) => r.id === mark.boq_row_id);
+                  const isEditing = editingId === mark.id;
+                  return (
+                    <tr key={mark.id} data-testid={`ref-row-${mark.ref_id}`}>
+                      <td className="font-mono text-qto-primary font-bold">{mark.ref_id}</td>
+                      <td className="font-mono text-xs">{drawing?.filename || '—'} pg.{mark.page}</td>
+                      <td className="font-mono">{row?.item_no || '—'}</td>
+                      <td>{row?.description || '—'}</td>
+                      <td className="text-xs">
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={draftLabel}
+                            autoFocus
+                            onChange={(e) => setDraftLabel(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveEdit(mark);
+                              if (e.key === 'Escape') cancelEdit();
+                            }}
+                            className="qto-input w-full text-xs"
+                            data-testid={`label-input-${mark.ref_id}`}
+                          />
+                        ) : (
+                          <span data-testid={`label-text-${mark.ref_id}`}>{mark.label || '—'}</span>
+                        )}
+                      </td>
+                      <td className="no-print">
+                        <div className="flex items-center gap-1">
+                          {isEditing ? (
+                            <>
+                              <button onClick={() => saveEdit(mark)} className="p-1 hover:bg-qto-surface-hover rounded transition-qto" title="Save" data-testid={`save-label-${mark.ref_id}`}>
+                                <Check className="w-4 h-4 text-qto-primary" />
+                              </button>
+                              <button onClick={cancelEdit} className="p-1 hover:bg-qto-surface-hover rounded transition-qto" title="Cancel" data-testid={`cancel-label-${mark.ref_id}`}>
+                                <X className="w-4 h-4 text-qto-text-secondary" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button onClick={() => startEdit(mark)} className="p-1 hover:bg-qto-surface-hover rounded transition-qto" title="Edit label" data-testid={`edit-label-${mark.ref_id}`}>
+                                <Pencil className="w-4 h-4 text-qto-text-secondary" />
+                              </button>
+                              <button onClick={() => onOpenMark(mark)} className="p-1 hover:bg-qto-surface-hover rounded transition-qto" title="Open on drawing" data-testid={`open-ref-${mark.ref_id}`}>
+                                <ExternalLink className="w-4 h-4 text-qto-primary" />
+                              </button>
+                              <button onClick={() => handleDelete(mark)} className="p-1 hover:bg-qto-surface-hover rounded transition-qto" title="Delete mark" data-testid={`delete-ref-${mark.ref_id}`}>
+                                <Trash2 className="w-4 h-4 text-red-400" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </React.Fragment>
+            ))}
           </tbody>
         </table>
       </div>

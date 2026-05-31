@@ -1,0 +1,81 @@
+{
+  "summary": "Frontend-only testing of 2 P2 features: (1) References tab grouping by BOQ Item No., (2) Pan/zoom view state persistence via localStorage. Found and FIXED a race-condition bug in pan/zoom restore. Both features now verified working. Export Full Report also verified (double-underscore filename fix confirmed). All prior regression flows pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "infrastructure",
+        "issue": "On test start, backend was FATAL due to corrupted venv: /root/.venv/bin/uvicorn was all null-bytes (300 null bytes). Fixed by reinstalling packages with base Python (/usr/local/bin/python3.11 -m pip install -r requirements.txt --target) and recreating the uvicorn script. Root cause: disk write error corrupted the venv binary in place."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ReferencesPanel.js - Two ambiguous '(No BOQ Item)' group headers",
+        "issue": "In Civil Arc project, two separate group header rows both display '(No BOQ Item)' — one for marks linked to a BOQ row that has no item_no (rowId=6a17172d51a683d0f6f8d103), and one for marks with no boq_row_id at all (rowId=__none__). Users see two identically-labeled groups with no way to distinguish which is 'linked but unnamed' vs 'unlinked'. Suggestion: for the linked-but-unnamed group, show e.g. 'BOQ Row (No Item No.)' or include a row index.",
+        "selector": "[data-testid^='ref-group-']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "bugs_found_and_fixed": [
+    {
+      "component": "DrawingMeasurement.js - Pan/zoom persistence race condition",
+      "description": "BUG: When reopening the drawing modal, zoom always reset to 100% despite localStorage having the saved value. Root cause: the persist useEffect (400ms debounce) fires on component mount with initial zoom=1.0, and the async PDF load takes ~4 seconds. At t=400ms, the persist timer fires and OVERWRITES the saved zoom (e.g. 1.2) with 1.0. At t=4000ms, loadDrawing reads localStorage and gets 1.0 (already overwritten).",
+      "fix": "Moved the localStorage restore block from inside the try{...} after PDF rendering to BEFORE the async fetch at the very top of loadDrawing. This causes React to re-render immediately with the correct zoom, the persist useEffect re-runs and cancels the initial 1.0 timer, replacing it with the correct value.",
+      "file_changed": "/app/frontend/src/components/DrawingMeasurement.js",
+      "verified": true
+    }
+  ],
+  "test_results": {
+    "references_grouping": {
+      "group_headers_render": "PASS - 2 groups found with data-testid='ref-group-{rowId}'",
+      "amber_styling": "PASS - spanColor=rgb(245,158,11), bg=rgba(30,41,59,0.6)",
+      "mark_rows_under_groups": "PASS - 12 mark rows across 2 groups",
+      "no_boq_group": "PASS - data-testid='ref-group-__none__' present for unlinked marks"
+    },
+    "pan_zoom_persistence": {
+      "localStorage_save": "PASS - qto_view_{id} saved with {zoom:1.2, pan:{x:0,y:0}} after 400ms",
+      "restore_on_reopen": "PASS (after fix) - zoom 120% correctly restored on modal reopen",
+      "fresh_drawing_default": "PASS - new drawings default to zoom=1.0, pan={x:0,y:0}"
+    },
+    "export_full_report": {
+      "button_state": "PASS - shows 'Building PDF…', disabled during generation",
+      "download_trigger": "PASS - PDF downloaded",
+      "filename": "PASS - 'Civil_Arc_FullReport.pdf' (no double underscore)",
+      "previous_bug_fixed": "PASS - pdfReport.js .trim() before sanitize prevents double-underscore"
+    },
+    "regression": {
+      "boq_add_row": "PASS (2→3 rows)",
+      "boq_delete_row": "PASS (3→2 rows)",
+      "boq_inline_edit": "PASS (item_no field editable and saves)",
+      "references_inline_label_edit": "PASS (input opens, Escape cancels)",
+      "canvas_drawing_load": "PASS (3672x2517 canvas with marks visible)"
+    }
+  },
+  "test_report_links": ["/app/test_reports/iteration_5.json"],
+  "action_items": [
+    "OPTIONAL: Differentiate the 'linked BOQ row with no item_no' group label from the 'unlinked marks' group in ReferencesPanel — currently both show '(No BOQ Item)'. Consider showing 'Row N (No Item No.)' or adding the row's description when item_no is empty.",
+    "OPTIONAL: The canvas mark edit-on-click test could not be run via Playwright because the canvas CSS dimensions (3672x2517) overflow the 1920x1080 viewport. Manual test recommended if canvas edit regression needs re-verification."
+  ],
+  "critical_code_review_comments": [
+    "DrawingMeasurement.js: Pan/zoom restore was placed AFTER the async PDF render (lines 95-106 in original), creating a race condition with the persist useEffect. Fixed by moving restore to the start of loadDrawing.",
+    "ReferencesPanel.js: Line 80 - filtering groups with marks.length > 0 is correct. Groups without marks (BOQ rows with no linked marks) are excluded cleanly.",
+    "pdfReport.js: Line 179 - `.trim().replace(...)` correctly prevents 'Civil_Arc__FullReport.pdf' double-underscore by removing trailing spaces from projectName before sanitizing.",
+    "pdfReport.js: groupMap uses item_no as key (not row.id). If two different BOQ rows have the same item_no, their marks would merge into one group. ReferencesPanel.js uses row.id as key - these two implementations are intentionally different (PDF groups by item_no for display; panel groups by row ID for accuracy)."
+  ],
+  "updated_files": ["/app/frontend/src/components/DrawingMeasurement.js"],
+  "success_rate": {
+    "backend": "N/A (frontend-only test; backend was revived from corrupted venv)",
+    "frontend": "100% on all tested features (grouping, pan/zoom, export, regression)"
+  },
+  "test_credentials": "alias.parvez@gmail.com / Km@249535678 (Civil Arc, 12 marks, 1 drawing)",
+  "seed_data_creation": "None - test-modified item_no ('TEST-001') was immediately reverted",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Civil Arc project: 12 marks, 2 BOQ rows (both with empty item_no). References panel shows 2 groups both labeled '(No BOQ Item)' - group 1 (2 marks: REF-011, REF-012 linked to row 6a17172d51a683d0f6f8d103) and group 2 (10 marks: REF-001..010 with no boq_row_id). Canvas 3672x2517 at CSS pos x=642, y=114. Drawing ID: 6a15af427bea5eefb7a8e92d. pdfReport.js double-underscore bug is fixed. Pan/zoom race condition is fixed. Backend venv was corrupted (9496 null-byte files) and was repaired by reinstalling packages with base Python.",
+  "rca_of_issue": "Pan/zoom persistence bug RCA: DrawingMeasurement.js had a race condition. On mount: (1) persist useEffect runs immediately with zoom=1.0 and sets a 400ms timer; (2) loadDrawing starts an async PDF fetch (~4 seconds). At t=400ms: the persist timer fires and saves {zoom:1.0} to localStorage, overwriting the previously saved {zoom:1.2}. At t=4000ms: loadDrawing reads localStorage and gets {zoom:1.0} (already overwritten), then calls setZoom(1.0), keeping it at default. Fix: moved localStorage read+setZoom to the very beginning of loadDrawing (before async fetch) so React re-renders with zoom=1.2 immediately; the persist useEffect cancels the {zoom:1.0} timer and replaces with {zoom:1.2}."
+}

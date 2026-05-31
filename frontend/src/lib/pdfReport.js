@@ -110,32 +110,66 @@ export const generateFullReport = async ({ projectName, drawings, marks, boqRows
     }
   }
 
-  // Reference Index page(s) using autoTable
-  const tableBody = marks.map((m) => {
-    const dr = drawings.find((d) => d.id === m.drawing_id);
-    const row = boqRows.find((r) => r.id === m.boq_row_id);
-    return [
-      m.ref_id,
-      dr ? `${dr.filename} pg.${m.page || 1}` : '—',
-      row?.item_no || '—',
-      row?.description || '—',
-      m.label || '—',
-    ];
+  // Reference Index page(s) — grouped by BOQ Item No.
+  // Build ordered groups (preserving item_no order as they appear in boqRows)
+  const groupMap = new Map();
+  boqRows.forEach((r) => {
+    const key = r.item_no || '(No BOQ Item)';
+    if (!groupMap.has(key)) groupMap.set(key, { item_no: r.item_no || '', description: r.description || '', marks: [] });
   });
+  // Also capture marks that link to a row not in boqRows (edge case)
+  marks.forEach((m) => {
+    const row = boqRows.find((r) => r.id === m.boq_row_id);
+    const key = row?.item_no || '(No BOQ Item)';
+    if (!groupMap.has(key)) groupMap.set(key, { item_no: key, description: row?.description || '', marks: [] });
+    groupMap.get(key).marks.push(m);
+  });
+  // Remove BOQ groups with no marks
+  for (const [key, group] of groupMap.entries()) {
+    if (group.marks.length === 0) groupMap.delete(key);
+  }
+
+  const tableBody = [];
+  for (const group of groupMap.values()) {
+    // Section header row (spans all columns)
+    const headerLabel = group.item_no
+      ? `${group.item_no}  —  ${group.description}`
+      : `(No BOQ Item)${group.description ? '  —  ' + group.description : ''}`;
+    tableBody.push([{
+      content: headerLabel,
+      colSpan: 5,
+      styles: { fontStyle: 'bold', fillColor: [30, 41, 59], textColor: [245, 158, 11], fontSize: 9 },
+    }]);
+    // Mark rows within the group
+    group.marks.forEach((m) => {
+      const dr = drawings.find((d) => d.id === m.drawing_id);
+      tableBody.push([
+        m.ref_id,
+        dr ? `${dr.filename} pg.${m.page || 1}` : '—',
+        group.item_no || '—',
+        group.description || '—',
+        m.label || '—',
+      ]);
+    });
+  }
 
   doc.addPage();
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.text('Drawing Reference Index', margin, 36);
+  doc.setFontSize(10);
+  doc.setTextColor(120);
+  doc.text(`Grouped by BOQ Item No. · ${marks.length} marks across ${groupMap.size} item(s)`, margin, 52);
+  doc.setTextColor(0);
   autoTable(doc, {
-    startY: 56,
+    startY: 64,
     head: [['Ref ID', 'Drawing + Page', 'BOQ Item', 'Description', 'Label / Note']],
     body: tableBody,
-    styles: { fontSize: 9, cellPadding: 6 },
+    styles: { fontSize: 9, cellPadding: 5 },
     headStyles: { fillColor: [15, 23, 42], textColor: [245, 158, 11] },
     columnStyles: {
       0: { cellWidth: 60, fontStyle: 'bold' },
-      1: { cellWidth: 180 },
+      1: { cellWidth: 160 },
       2: { cellWidth: 70 },
     },
     margin: { left: margin, right: margin },

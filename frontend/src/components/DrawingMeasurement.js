@@ -63,6 +63,20 @@ const DrawingMeasurement = ({
 
   const loadDrawing = useCallback(async (drawing) => {
     if (!drawing) return;
+    // Restore saved pan/zoom IMMEDIATELY (before async PDF fetch) so the persist
+    // useEffect re-runs with the correct values before its 400ms timer can overwrite them.
+    try {
+      const saved = localStorage.getItem(`qto_view_${drawing.id}`);
+      if (saved) {
+        const { zoom: sz, pan: sp } = JSON.parse(saved);
+        setZoom(sz || 1.0);
+        setPan(sp || { x: 0, y: 0 });
+      } else {
+        setZoom(1.0); setPan({ x: 0, y: 0 });
+      }
+    } catch {
+      setZoom(1.0); setPan({ x: 0, y: 0 });
+    }
     try {
       const resp = await fetch(`${API}/drawings/${drawing.id}/download`, { credentials: 'include' });
       const blob = await resp.blob();
@@ -91,7 +105,6 @@ const DrawingMeasurement = ({
       setNumPages(pages.length);
       setCurrentPage(1);
       setScale({ factor: drawing.scale_factor || 1.0, ratio: drawing.scale_ratio || '1:1' });
-      setZoom(1.0); setPan({ x: 0, y: 0 });
       setMeasurements([]); setCurrentPoints([]);
       // Render first page immediately (the [currentPage] effect won't fire if currentPage stays 1)
       requestAnimationFrame(() => {
@@ -286,6 +299,17 @@ const DrawingMeasurement = ({
   const handleZoom = (delta) => setZoom((z) => Math.max(0.25, Math.min(4, z + delta)));
   const fitZoom = () => { setZoom(1.0); setPan({ x: 0, y: 0 }); };
   const handleWheel = (e) => { e.preventDefault(); handleZoom(e.deltaY < 0 ? 0.1 : -0.1); };
+
+  // Persist zoom/pan for the active drawing so reopening restores the view
+  useEffect(() => {
+    if (!selectedDrawing) return;
+    const id = setTimeout(() => {
+      try {
+        localStorage.setItem(`qto_view_${selectedDrawing.id}`, JSON.stringify({ zoom, pan }));
+      } catch { /* quota exceeded — ignore */ }
+    }, 400);
+    return () => clearTimeout(id);
+  }, [zoom, pan, selectedDrawing]);
   const handleMouseDown = (e) => {
     if (e.button === 1 || e.shiftKey) {
       setIsPanning(true);
